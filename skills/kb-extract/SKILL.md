@@ -55,6 +55,10 @@ CLI 里。
 | "校验知识库" | `scripts/verify.{ps1,sh} X` |
 | "构建 wiki / generate wiki" | `kb wiki build X --provider mock --seed 0` |
 | "校验 wiki" | `kb wiki verify X` |
+| "记住 / remember / 设置偏好" | `kb remember <key> <value>` |
+| "列出我的偏好" | `kb remember --list` |
+| "忘记 / forget" | `kb forget <key>` |
+| "回顾历史 / recall / 我之前跑过什么" | `kb recall [--project X] [--command Y]` |
 
 所有脚本都使用 `kb ... --json`，并把解析后的状态展示给用户。
 
@@ -66,3 +70,11 @@ CLI 里。
 2. 若用户明确要求真实 provider（如 `--provider openai`），先确认环境变量
    `KB_EXTRACT_LLM_PROVIDER` 与对应密钥已就绪
 3. 跑完之后立刻调 `kb wiki verify`，若有违规则原文呈现给用户（同 extract 流程）
+
+### 关于 memory 子命令（v0.4+）
+
+- `kb` 自动在 `~/.kb-extract/memory.db`（或 `$KB_EXTRACT_HOME/memory.db`）记录
+  每次 extract / verify / wiki build / wiki verify 的执行历史。**技能无需做任何额外动作**。
+- 当用户说"记住我喜欢 openai provider"等，调 `kb remember default_provider openai`。
+- 当用户问"我上次跑的是啥"，调 `kb recall --limit 5` 并展示结果。
+- memory 写入失败时静默；技能不应把 memory 错误当成主流程错误。

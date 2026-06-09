@@ -50,12 +50,46 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
     os.replace(tmp_name, path)
 
 
+def _load_source_sha256_map(project_root: Path) -> dict[str, str]:
+    """Best-effort: from kb/manifest.sqlite, build {doc_id -> source_sha256}.
+
+    H18 evidence_origins relies on this. If manifest is absent or unreadable,
+    we return an empty map and downstream code records empty origin list
+    (caller decides whether to fail).
+    """
+    import sqlite3
+
+    db = project_root / "kb" / "manifest.sqlite"
+    if not db.is_file():
+        return {}
+    out: dict[str, str] = {}
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+        try:
+            # Conservative: schema may have evolved; only read the columns
+            # we strictly need. If schema differs, just return what we got.
+            cur = conn.execute("SELECT source_path, source_sha256 FROM manifest")
+            for src_path, sha in cur.fetchall():
+                if not src_path or not sha:
+                    continue
+                # doc_id is the basename (folder under kb/) created by orchestrator
+                doc_id = Path(src_path).stem
+                out[doc_id] = sha
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return {}
+    return out
+
+
 def _serialize_index(
     topics: list[Topic],
     entries: list[WikiEntry],
     provider_name: str,
     seed: int,
+    source_sha_map: dict[str, str] | None = None,
 ) -> bytes:
+    sha_map = source_sha_map or {}
     obj = {
         "schema_version": _WIKI_INDEX_SCHEMA,
         "provider": provider_name,
@@ -67,6 +101,11 @@ def _serialize_index(
                 "evidence_count": len(t.evidence),
                 "pin_count": e.pin_count,
                 "unresolved_pins": list(e.unresolved_pins),
+                "evidence_origins": sorted({
+                    sha_map[ev.doc_id]
+                    for ev in t.evidence
+                    if ev.doc_id in sha_map
+                }),
                 "evidence": [
                     {
                         "doc_id": ev.doc_id,
@@ -135,7 +174,11 @@ def build_wiki(
         out_path = wiki_dir / f"{topic.slug}.md"
         _atomic_write_bytes(out_path, entry.markdown.encode("utf-8"))
 
-    _atomic_write_bytes(idx_path, _serialize_index(topics, entries, provider_name, seed))
+    sha_map = _load_source_sha256_map(project_root)
+    _atomic_write_bytes(
+        idx_path,
+        _serialize_index(topics, entries, provider_name, seed, sha_map),
+    )
 
     return WikiResult(
         project_root=project_root,
@@ -172,7 +215,7 @@ def verify_wiki(project_root: Path) -> list[str]:
         if topic.get("unresolved_pins"):
             for n in topic["unresolved_pins"]:
                 violations.append(f"topic {slug}: evidence pin [^ev-{n}] 越界")
-        # 校验 evidence 的 anchor 是否真实存在
+        # 校验 evidence 的 anchor 是否真实存在 (H14) 且唯一 (H17)
         for ev in topic.get("evidence", []):
             anchor_path = project_root / "kb" / ev["doc_id"] / "main.md"
             if not anchor_path.is_file():
@@ -181,9 +224,31 @@ def verify_wiki(project_root: Path) -> list[str]:
                 )
                 continue
             content = anchor_path.read_text(encoding="utf-8")
-            if f'<a id="{ev["anchor"]}">' not in content:
+            needle = f'<a id="{ev["anchor"]}">'
+            count = content.count(needle)
+            if count == 0:
                 violations.append(
-                    f"topic {slug}: anchor #{ev['anchor']} 在 kb/{ev['doc_id']}/main.md 中找不到"
+                    f"topic {slug}: anchor #{ev['anchor']} 在 kb/{ev['doc_id']}/main.md 中找不到 (H14)"
                 )
+            elif count > 1:
+                violations.append(
+                    f"topic {slug}: anchor #{ev['anchor']} 在 kb/{ev['doc_id']}/main.md 中出现了 {count} 次（H17 要求唯一）"
+                )
+
+        # H18: evidence_origins must enumerate every distinct source sha256
+        # behind this topic's evidence. If we can read manifest, cross-check.
+        declared_origins = set(topic.get("evidence_origins", []) or [])
+        distinct_doc_ids = {ev["doc_id"] for ev in topic.get("evidence", [])}
+        # If manifest is present, reconstruct expected origin set:
+        expected_origins = {
+            sha
+            for did, sha in _load_source_sha256_map(project_root).items()
+            if did in distinct_doc_ids
+        }
+        if expected_origins and not expected_origins.issubset(declared_origins):
+            missing = sorted(expected_origins - declared_origins)
+            violations.append(
+                f"topic {slug}: evidence_origins 缺少源 sha256: {missing} (H18)"
+            )
 
     return violations
