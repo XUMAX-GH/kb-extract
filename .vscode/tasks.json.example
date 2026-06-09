@@ -1,0 +1,33 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "KB: Extract current folder",
+      "type": "shell",
+      "command": "kb",
+      "args": ["extract", "${workspaceFolder}", "--json"],
+      "problemMatcher": []
+    },
+    {
+      "label": "KB: Extract current folder (force)",
+      "type": "shell",
+      "command": "kb",
+      "args": ["extract", "${workspaceFolder}", "--force", "--json"],
+      "problemMatcher": []
+    },
+    {
+      "label": "KB: Verify project",
+      "type": "shell",
+      "command": "kb",
+      "args": ["verify", "${workspaceFolder}", "--json"],
+      "problemMatcher": []
+    },
+    {
+      "label": "KB: Show manifest",
+      "type": "shell",
+      "command": "kb",
+      "args": ["manifest", "${workspaceFolder}"],
+      "problemMatcher": []
+    }
+  ]
+}
