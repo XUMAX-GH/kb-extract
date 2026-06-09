@@ -9,6 +9,7 @@ that the CI job will consume.
 
 import hashlib
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -33,7 +34,13 @@ def test_emit_h13_hash_manifest(tmp_path):
 
     project = tmp_path / "P"
     project.mkdir()
-    (project / "deterministic.noop").write_bytes(b"H13 fixture content")
+    src = project / "deterministic.noop"
+    src.write_bytes(b"H13 fixture content")
+    # Pin mtime to a fixed epoch so meta.json's source_mtime_iso is byte-identical
+    # across Ubuntu/Windows/macOS. Without this, each runner stamps the synthetic
+    # file with its own wall-clock time and H13 fails by construction.
+    fixed_ts = 1_700_000_000.0  # 2023-11-14T22:13:20Z
+    os.utime(src, (fixed_ts, fixed_ts))
 
     reg = Registry()
     reg.register(NoopAdapter())
@@ -42,7 +49,10 @@ def test_emit_h13_hash_manifest(tmp_path):
     manifest = _hash_dir(project / "kb")
     out_root = Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "_h13-output"
     out_root.mkdir(parents=True, exist_ok=True)
-    (out_root / "hash-manifest.json").write_text(
-        json.dumps(manifest, indent=2, sort_keys=True), encoding="utf-8"
+    # write_bytes (not write_text) to avoid Windows CRLF translation of the
+    # manifest file itself, which would make the CI diff fail even when the
+    # hashes inside are identical.
+    (out_root / "hash-manifest.json").write_bytes(
+        (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
     )
     assert manifest, "hash manifest empty (something went wrong)"
