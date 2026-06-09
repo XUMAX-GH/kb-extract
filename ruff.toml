@@ -6,9 +6,10 @@ select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
 ignore = ["E501"]
 
 [lint.per-file-ignores]
-"tests/**/*.py" = ["B011"]
-# cli.py contains user-facing Chinese help text in docstrings and
+"tests/**/*.py" = ["B011", "RUF001", "RUF002", "RUF003"]
+# cli.py + wiki/ contain user-facing Chinese help text in docstrings and
 # Click @option(help=...) strings. The fullwidth CJK punctuation
 # (（）、，) is intentional and visually correct in Chinese; ASCII
-# substitutes look awkward inline. Allow them only in this file.
+# substitutes look awkward inline. Allow them only here.
 "src/kb_extract/cli.py" = ["RUF001", "RUF002"]
+"src/kb_extract/wiki/**/*.py" = ["RUF001", "RUF002", "RUF003"]

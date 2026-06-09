@@ -5,6 +5,49 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本号遵循 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
+## [0.3.0] — 2026-06-09
+
+LLM-Wiki 层 (Karpathy LLM-Wiki 风格)：在 v0.2 抽取产物之上，构建带强制
+evidence pin 的二级 wiki 文档。这是包内**唯一**允许调 LLM 的层；
+adapters 仍然受 H2 不变量约束。
+
+### 新增
+
+- **新 CLI 子命令组** `kb wiki`：
+  - `kb wiki build <project>`：基于 `<project>/kb/` 重建 `<project>/wiki/`
+  - `kb wiki verify <project>`：校验所有 evidence pin 都能解析到真实 anchor
+- **可插拔的 LLM provider 协议** (`src/kb_extract/wiki/providers/`)：
+  - `MockLlmClient`：完全确定性的零网络 provider，CI 默认
+  - `openai` / `anthropic` / `ollama` 留了占位接口（NotImplementedError，
+    在 v0.4 接真实 SDK）
+  - 通过 `--provider` 或 `KB_EXTRACT_LLM_PROVIDER` 环境变量切换
+- **纯算法 topic 聚类** (`wiki/topics.py`)：从 `kb/<doc>/index.json` 收集叶子
+  section title，按词集合 Jaccard 距离 (≤ 0.85) 做 single-linkage 聚类，
+  跨文档自动合并相似主题。无 LLM。
+- **Evidence pin 与脚注解析** (`wiki/writer.py`)：LLM 生成的每个 `[^ev-N]`
+  自动追加 `[^ev-N]: [Section Title (p.X)](../kb/<doc>/main.md#<anchor>)` 脚注定义。
+  越界编号会被显式标记为 `UNRESOLVED`。
+- **3 条新增 hardness 不变量**：
+  - **H14** `evidence-pin-resolves`: 每个 `[^ev-N]` 都指向真实存在的 kb anchor
+  - **H15** `wiki-determinism-under-seed`: 固定 provider + seed 时 wiki/ 全部
+    输出 byte 一致
+  - **H16** `no-extract-side-effect`: `kb wiki build` 不修改 `kb/` 下任何文件
+- **adapters 层导入边界自动检查**：测试 `test_adapter_does_not_import_from_wiki_layer`
+  保证 adapters 永远不会反向依赖 wiki 层（H2 扩展）。
+
+### 测试
+
+- 新增 4 个测试文件，22 个测试：`test_wiki_mock_provider.py`、
+  `test_wiki_topics.py`、`test_wiki_writer.py`、`test_wiki_e2e.py`
+- adapters H2 测试自动从 11 个增长到 22 个（每个 adapter ×2 条不变量）
+- 总用例数：177 → 199 (+22 sp3)
+
+### 兼容性
+
+- v0.3 的 `kb extract` 行为与 v0.2 完全一致
+- 旧版本（v0.1 / v0.2）的 `kb/` 产物可以直接 `kb wiki build`，无需重抽
+- `meta.json` schema 未改
+
 ## [0.2.0] — 2026-06-09
 
 PageIndex 风格的章节树精炼。所有已抽取的 `kb/` 内容哈希都会变化，
