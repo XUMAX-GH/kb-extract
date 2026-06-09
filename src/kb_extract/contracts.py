@@ -52,3 +52,48 @@ class AssetRef:
     width: int | None = None
     height: int | None = None
     alt: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ExtractionMeta:
+    source_path: str
+    source_sha256: str
+    source_bytes: int
+    source_mtime_iso: str
+    adapter_name: str
+    adapter_version: str
+    tool_versions: dict[str, str]
+    extracted_at_iso: str
+    outline_source: Literal["bookmark", "heading_style", "docling_layout", "page_fallback"]
+    status: Literal["ok", "partial", "failed"]
+    warnings: tuple[str, ...] = ()
+    skipped_reasons: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ExtractionResult:
+    markdown: str
+    index: SectionNode
+    tables: tuple[TableRef, ...]
+    assets: tuple[AssetRef, ...]
+    meta: ExtractionMeta
+
+    def content_sha256(self) -> str:
+        """sha256 over (markdown bytes || sorted asset sha256s || index canonical bytes).
+
+        Used for idempotency and verification. Asset order in the tuple does
+        not affect the hash; assets are sorted by sha256 first.
+        """
+        import hashlib
+
+        from .serialization import canonical_index_bytes
+
+        h = hashlib.sha256()
+        h.update(self.markdown.encode("utf-8"))
+        h.update(b"\x00ASSETS\x00")
+        for a in sorted(self.assets, key=lambda a: a.sha256):
+            h.update(a.sha256.encode("ascii"))
+            h.update(b"\x00")
+        h.update(b"\x00INDEX\x00")
+        h.update(canonical_index_bytes(self.index))
+        return h.hexdigest()
