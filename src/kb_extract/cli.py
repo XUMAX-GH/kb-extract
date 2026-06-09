@@ -17,6 +17,7 @@ import click
 
 from . import __version__
 from .orchestrator import run as orch_run
+from .verify import verify_project
 
 
 @click.group()
@@ -69,3 +70,26 @@ def extract(
         for v in report.violations:
             click.echo(f"  [violation] {v}", err=True)
     sys.exit(1 if report.failed_count or report.violations else 0)
+
+
+@main.command()
+@click.argument("path", type=click.Path(exists=True, path_type=Path))
+@click.option("--json", "as_json", is_flag=True, help="Emit JSON.")
+@click.option("--fail-fast", is_flag=True, help="Stop at first violation.")
+def verify(path: Path, as_json: bool, fail_fast: bool) -> None:
+    """Re-check on-disk artifacts against manifest. Exit 3 on violation."""
+    report = verify_project(path, fail_fast=fail_fast)
+    if as_json:
+        click.echo(json.dumps({
+            "ok": report.ok,
+            "files_checked": report.files_checked,
+            "violations": report.violations,
+        }, indent=2, sort_keys=True))
+    else:
+        click.echo(
+            f"verify: ok={report.ok} files_checked={report.files_checked} "
+            f"violations={len(report.violations)}"
+        )
+        for v in report.violations:
+            click.echo(f"  [violation] {v}", err=True)
+    sys.exit(0 if report.ok else 3)
