@@ -82,14 +82,16 @@ class ExtractionResult:
         """sha256 over (markdown bytes || sorted asset sha256s || index canonical bytes).
 
         Used for idempotency and verification. Asset order in the tuple does
-        not affect the hash; assets are sorted by sha256 first.
+        not affect the hash; assets are sorted by sha256 first. Markdown is
+        normalized via ``serialize_markdown`` first so the hash matches the
+        bytes actually written to disk (and re-read by ``kb verify``).
         """
         import hashlib
 
-        from .serialization import canonical_index_bytes
+        from .serialization import canonical_index_bytes, serialize_markdown
 
         h = hashlib.sha256()
-        h.update(self.markdown.encode("utf-8"))
+        h.update(serialize_markdown(self.markdown).encode("utf-8"))
         h.update(b"\x00ASSETS\x00")
         for a in sorted(self.assets, key=lambda a: a.sha256):
             h.update(a.sha256.encode("ascii"))
