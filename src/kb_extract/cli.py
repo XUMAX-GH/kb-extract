@@ -1,10 +1,10 @@
-"""kb console script. Spec §8.1.
+"""kb 命令行入口（规格 sec.8.1）。
 
-Exit codes:
-  0  ok
-  1  at least one source failed/partial
-  2  usage error (Click default)
-  3  hardness violation (verify mode)
+退出码:
+  0  正常
+  1  至少一份源文件失败 / partial
+  2  命令行用法错误（Click 默认）
+  3  hardness 违规（仅 verify 模式）
 """
 
 from __future__ import annotations
@@ -29,16 +29,16 @@ from .verify import verify_project
 @click.group()
 @click.version_option(__version__, prog_name="kb")
 def main() -> None:
-    """kb — deterministic document extraction."""
+    """kb —— 确定性文档抽取工具。"""
 
 
 @main.command()
 @click.argument("path", type=click.Path(exists=True, path_type=Path))
-@click.option("--force", is_flag=True, help="Re-extract even if source hash matches.")
-@click.option("--dry-run", is_flag=True, help="Discover sources but don't extract.")
-@click.option("--json", "as_json", is_flag=True, help="Emit JSON report on stdout.")
-@click.option("--only", "only", multiple=True, help="Limit to listed extensions (e.g. --only .pdf).")
-@click.option("--adapter", default=None, help="(unused in v1) Force specific adapter.")
+@click.option("--force", is_flag=True, help="即使源文件 hash 未变也重新抽取。")
+@click.option("--dry-run", is_flag=True, help="仅扫描可抽取的源文件，不写入磁盘。")
+@click.option("--json", "as_json", is_flag=True, help="在标准输出打印 JSON 报告。")
+@click.option("--only", "only", multiple=True, help="只处理列出的扩展名（例如 --only .pdf）。")
+@click.option("--adapter", default=None, help="（v1 暂未使用）强制指定适配器。")
 def extract(
     path: Path,
     force: bool,
@@ -47,7 +47,7 @@ def extract(
     only: tuple[str, ...],
     adapter: str | None,
 ) -> None:
-    """Extract documents under PATH."""
+    """抽取 PATH 下的所有文档。"""
     only_exts = tuple(only) if only else None
     report = orch_run(
         path,
@@ -80,10 +80,10 @@ def extract(
 
 @main.command()
 @click.argument("path", type=click.Path(exists=True, path_type=Path))
-@click.option("--json", "as_json", is_flag=True, help="Emit JSON.")
-@click.option("--fail-fast", is_flag=True, help="Stop at first violation.")
+@click.option("--json", "as_json", is_flag=True, help="以 JSON 输出。")
+@click.option("--fail-fast", is_flag=True, help="发现第一条违规后立刻停止。")
 def verify(path: Path, as_json: bool, fail_fast: bool) -> None:
-    """Re-check on-disk artifacts against manifest. Exit 3 on violation."""
+    """基于 manifest 重新校验磁盘产物。检测到违规时返回退出码 3。"""
     report = verify_project(path, fail_fast=fail_fast)
     if as_json:
         click.echo(json.dumps({
@@ -102,9 +102,9 @@ def verify(path: Path, as_json: bool, fail_fast: bool) -> None:
 
 
 @main.command()
-@click.option("--json", "as_json", is_flag=True)
+@click.option("--json", "as_json", is_flag=True, help="以 JSON 输出适配器列表。")
 def adapters(as_json: bool) -> None:
-    """List registered adapters."""
+    """列出已注册的适配器。"""
     reg = get_default_registry()
     rows = [
         {"name": a.name, "version": a.version, "extensions": list(a.extensions)}
@@ -122,10 +122,12 @@ def adapters(as_json: bool) -> None:
 @click.argument("path", type=click.Path(exists=True, path_type=Path))
 @click.option("--status",
               type=click.Choice(["ok", "partial", "failed", "skipped"]),
-              default=None)
-@click.option("--format", "fmt", type=click.Choice(["table", "json", "csv"]), default="table")
+              default=None,
+              help="按状态过滤记录。")
+@click.option("--format", "fmt", type=click.Choice(["table", "json", "csv"]),
+              default="table", help="输出格式（默认 table）。")
 def manifest_cmd(path: Path, status: str | None, fmt: str) -> None:
-    """Show manifest rows for the project."""
+    """展示项目的 manifest 记录。"""
     project_root = find_project_root(path)
     db = project_root / "kb" / "manifest.sqlite"
     if not db.exists():

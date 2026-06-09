@@ -1,0 +1,22 @@
+{
+  "name": "kb-extract",
+  "description": "确定性、零幻觉的个人知识库抽取工具：将 PDF/DOCX/XLSX/PPTX/PNG/ZIP 文档转为可追溯的 Markdown，并以 Copilot CLI 技能形式封装。",
+  "version": "0.1.0",
+  "author": {
+    "name": "XUMAX-GH"
+  },
+  "homepage": "https://github.com/XUMAX-GH/kb-extract",
+  "repository": "https://github.com/XUMAX-GH/kb-extract",
+  "license": "MIT",
+  "keywords": [
+    "knowledge-base",
+    "document-extraction",
+    "markdown",
+    "deterministic",
+    "pdf",
+    "docx",
+    "xlsx",
+    "pptx",
+    "copilot-cli"
+  ]
+}
