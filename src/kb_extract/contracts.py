@@ -64,10 +64,18 @@ class ExtractionMeta:
     adapter_version: str
     tool_versions: dict[str, str]
     extracted_at_iso: str
-    outline_source: Literal["bookmark", "heading_style", "docling_layout", "page_fallback"]
+    outline_source: Literal[
+        "bookmark",
+        "heading_style",
+        "docling_layout",
+        "page_fallback",
+        "heading_inferred",
+        "pptx_section",
+    ]
     status: Literal["ok", "partial", "failed"]
     warnings: tuple[str, ...] = ()
     skipped_reasons: tuple[str, ...] = ()
+    outline_confidence: Literal["high", "medium", "low"] = "high"
 
 
 @dataclass(frozen=True, slots=True)

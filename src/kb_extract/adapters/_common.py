@@ -9,7 +9,15 @@ from typing import Literal
 
 from ..contracts import ExtractionMeta
 
-OutlineSource = Literal["bookmark", "heading_style", "docling_layout", "page_fallback"]
+OutlineSource = Literal[
+    "bookmark",
+    "heading_style",
+    "docling_layout",
+    "page_fallback",
+    "heading_inferred",
+    "pptx_section",
+]
+OutlineConfidence = Literal["high", "medium", "low"]
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -31,6 +39,7 @@ def make_meta(
     adapter_version: str,
     tool_versions: dict[str, str],
     outline_source: OutlineSource,
+    outline_confidence: OutlineConfidence = "high",
     status: str = "ok",
     warnings: tuple[str, ...] = (),
     skipped_reasons: tuple[str, ...] = (),
@@ -53,4 +62,5 @@ def make_meta(
         status=status,  # type: ignore[arg-type]
         warnings=warnings,
         skipped_reasons=skipped_reasons,
+        outline_confidence=outline_confidence,
     )
