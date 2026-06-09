@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml/badge.svg)](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](CHANGELOG.md)
 
 ---
 
@@ -223,12 +223,17 @@ kb extract <path> ──► orchestrator ──► Extractor (按格式分派的
 
 | 适配器 | 支持扩展名 | 实现 |
 |---|---|---|
-| `pdf_docling` | `.pdf` | PyMuPDF（注：v1 还没真正接 docling 模型，留作 v1.1） |
+| `pdf_docling` | `.pdf` | PyMuPDF；v0.2 起按 TOC `level` 字段重建多层嵌套树；无 TOC 时按字号 / 字重确定性聚类推断 heading（`outline_source="heading_inferred"`） |
 | `docx` | `.docx` | python-docx，保留章节层级 |
-| `xlsx` | `.xlsx` | openpyxl，逐 sheet → 表格化 Markdown |
-| `pptx` | `.pptx` | python-pptx，每页一节 |
+| `xlsx` | `.xlsx` | openpyxl，逐 sheet → 表格化 Markdown；v0.2 起按 sheet 名前缀数字自然排序 |
+| `pptx` | `.pptx` | python-pptx；v0.2 起检测 PowerPoint 原生"节"形成 root → section → slide 两层树（`outline_source="pptx_section"`） |
 | `image` | `.png` / `.jpg` / `.jpeg` | Pillow，仅元数据 + 资产搬运 |
 | `zip` | `.zip` | 递归调用 orchestrator（深度上限 5） |
+
+> **v0.2.0 章节质量分级**：所有 `meta.json` 现在多了 `outline_confidence`
+> 字段（`high` / `medium` / `low`）。直接来自源文件结构（DOCX heading style /
+> PDF TOC / PPTX section）的为 `high`；通过字号启发式推断出的为 `medium`
+> 或 `low`，下游 LLM-Wiki 层据此分流处理。
 
 ---
 

@@ -1,9 +1,11 @@
 """PDF adapter. Bookmark-first via pymupdf; docling-layout fallback planned.
 
-For v1: pymupdf bookmarks → section tree; raw text extracted per page;
-embedded images saved verbatim. docling integration deferred for v1.1
-because docling first-run model download is heavy and may not be
-bit-identical (spec §10 risk).
+v0.2 (sp2):
+  - When pymupdf returns a TOC, build a true recursive SectionNode tree
+    using the level field instead of flattening everything to level=1.
+  - When no TOC, attempt font-size heading inference (deterministic, no LLM)
+    via the sibling `pdf_heading_infer` module before falling back to
+    per-page headings.
 """
 
 from __future__ import annotations
@@ -15,11 +17,12 @@ import fitz  # pymupdf
 
 from ..contracts import AssetRef, ExtractionResult, SectionNode
 from ._common import make_meta, sha256_bytes
+from .pdf_heading_infer import InferenceResult, infer_headings
 
 
 class PdfDoclingAdapter:
     name = "pdf_docling"
-    version = "0.1"
+    version = "0.2"
     extensions = (".pdf",)
 
     def extract(self, src: Path, out_dir_tmp: Path) -> ExtractionResult:
@@ -41,48 +44,25 @@ class PdfDoclingAdapter:
 
         n_pages = doc.page_count
         toc = doc.get_toc(simple=True)  # [[level, title, page], ...]
-        children: list[SectionNode] = []
+        children: tuple[SectionNode, ...]
         outline_source: str
+        outline_confidence: str = "high"
 
         if toc:
             outline_source = "bookmark"
-            # Build flat children list at level=1; group multi-page ranges.
-            # toc page numbers are 1-based.
-            sorted_toc = [t for t in toc if t[2] >= 1]
-            sorted_toc.sort(key=lambda t: t[2])
-            for i, entry in enumerate(sorted_toc):
-                _level, title, start_page = entry
-                end_page = (
-                    sorted_toc[i + 1][2] - 1 if i + 1 < len(sorted_toc) else n_pages
-                )
-                anchor = f"sec-{i + 1:04d}"
-                md_lines.append(f'<a id="{anchor}"></a>')
-                md_lines.append(f"# {title}")
-                md_lines.append("")
-                for p in range(start_page, end_page + 1):
-                    txt = page_texts[p - 1].strip()
-                    if txt:
-                        md_lines.append(txt)
-                        md_lines.append("")
-                children.append(SectionNode(
-                    node_id=f"{i + 1:04d}", title=title, level=1,
-                    page_start=start_page, page_end=end_page,
-                    anchor=anchor, language="und",
-                ))
+            children = _build_pdf_tree_from_toc(toc, n_pages, page_texts, md_lines)
         else:
-            outline_source = "page_fallback"
-            for p in range(1, n_pages + 1):
-                anchor = f"sec-{p:04d}"
-                md_lines.append(f'<a id="{anchor}"></a>')
-                md_lines.append(f"# Page {p}")
-                md_lines.append("")
-                if page_texts[p - 1].strip():
-                    md_lines.append(page_texts[p - 1].strip())
-                    md_lines.append("")
-                children.append(SectionNode(
-                    node_id=f"{p:04d}", title=f"Page {p}", level=1,
-                    page_start=p, page_end=p, anchor=anchor, language="und",
-                ))
+            inferred = infer_headings(doc)
+            if inferred and inferred.headings:
+                outline_source = "heading_inferred"
+                outline_confidence = inferred.confidence
+                children = _build_pdf_tree_from_inferred(
+                    inferred, n_pages, page_texts, md_lines
+                )
+            else:
+                outline_source = "page_fallback"
+                outline_confidence = "low"
+                children = _build_pdf_page_fallback(n_pages, page_texts, md_lines)
 
         # Embedded images via pymupdf (raw bytes, no re-encoding).
         assets: list[AssetRef] = []
@@ -101,9 +81,6 @@ class PdfDoclingAdapter:
                 data = info["image"]
                 fname = f"p{page_idx + 1}-img{img_idx}.{ext}"
                 (assets_dir / fname).write_bytes(data)
-                # Find the markdown section for this page and append the image ref.
-                # Simpler: append all image refs after their section heading line.
-                # For determinism, we insert after the heading of the matching page.
                 ref_line = f"![{fname}](assets/{fname})"
                 _insert_image_after_page(md_lines, page_idx + 1, ref_line)
                 assets.append(AssetRef(
@@ -115,13 +92,12 @@ class PdfDoclingAdapter:
         if any(not pt.strip() for pt in page_texts) and all(
             not pt.strip() for pt in page_texts
         ):
-            # Heuristic: if no text on any page, mark scanned warning.
             warnings.append("pdf.scanned_no_text_layer")
 
         root = SectionNode(
             node_id="0000", title=src.stem, level=0,
             page_start=1, page_end=n_pages,
-            anchor="", language="und", children=tuple(children),
+            anchor="", language="und", children=children,
         )
         doc.close()
         markdown = "\n".join(md_lines) + "\n"
@@ -131,11 +107,170 @@ class PdfDoclingAdapter:
             adapter_version=self.version,
             tool_versions={"pymupdf": fitz.__doc__ or "unknown"},
             outline_source=outline_source,  # type: ignore[arg-type]
+            outline_confidence=outline_confidence,  # type: ignore[arg-type]
             warnings=tuple(sorted(set(warnings))),
         )
         return ExtractionResult(
             markdown=markdown, index=root, tables=(), assets=tuple(assets), meta=meta
         )
+
+
+def _build_pdf_tree_from_toc(
+    toc: list, n_pages: int, page_texts: list[str], md_lines: list[str]
+) -> tuple[SectionNode, ...]:
+    """Build a true recursive tree from a pymupdf TOC list.
+
+    Entries: [[level (1-based), title, start_page (1-based)], ...]
+
+    Algorithm:
+      1. Compute end_page per entry = next sibling-or-shallower entry's page - 1
+      2. Emit markdown for each entry (heading + page-range body text)
+      3. Walk entries with a stack to nest children under correct parents
+    """
+    sorted_toc = [t for t in toc if t[2] >= 1]
+    # pymupdf already returns reading order; do NOT re-sort by page (would lose nesting).
+    n = len(sorted_toc)
+    end_pages: list[int] = []
+    for i, (lvl, _title, start_page) in enumerate(sorted_toc):
+        end_page = n_pages
+        for j in range(i + 1, n):
+            if sorted_toc[j][0] <= lvl:
+                end_page = max(sorted_toc[j][2] - 1, start_page)
+                break
+        end_pages.append(end_page)
+
+    # Emit markdown + build flat nodes first (preserve their level).
+    flat_nodes: list[SectionNode] = []
+    for i, (lvl, title, start_page) in enumerate(sorted_toc):
+        end_page = end_pages[i]
+        anchor = f"sec-{i + 1:04d}"
+        md_lines.append(f'<a id="{anchor}"></a>')
+        md_lines.append("#" * min(lvl, 6) + f" {title}")
+        md_lines.append("")
+        for p in range(start_page, end_page + 1):
+            if 1 <= p <= len(page_texts):
+                txt = page_texts[p - 1].strip()
+                if txt:
+                    md_lines.append(txt)
+                    md_lines.append("")
+        flat_nodes.append(SectionNode(
+            node_id=f"{i + 1:04d}", title=title, level=lvl,
+            page_start=start_page, page_end=end_page,
+            anchor=anchor, language="und",
+        ))
+
+    return _nest_by_level(flat_nodes)
+
+
+def _nest_by_level(flat: list[SectionNode]) -> tuple[SectionNode, ...]:
+    """Convert a flat in-order list of SectionNodes (with level set) into a tree.
+
+    Uses a running stack of "open" nodes; when the next node's level is greater
+    than the top, it becomes a child; equal or shallower pops back to the right
+    parent. SectionNode is frozen, so we rebuild each node when we close it
+    with its accumulated children.
+    """
+    if not flat:
+        return ()
+    # Mutable mirror: list of [node_kwargs, children]
+    pending: list[dict] = []  # each entry: {"node": SectionNode, "children": list[mirror]}
+    top_level_min = min(n.level for n in flat)
+    stack: list[dict] = []
+    roots: list[dict] = []
+    for node in flat:
+        mirror = {"node": node, "children": []}
+        # Pop stack until top.level < node.level
+        while stack and stack[-1]["node"].level >= node.level:
+            stack.pop()
+        if stack:
+            stack[-1]["children"].append(mirror)
+        else:
+            if node.level == top_level_min:
+                roots.append(mirror)
+            else:
+                # Level skew (e.g., starts at 2 with no level-1 parent): treat as root.
+                roots.append(mirror)
+        stack.append(mirror)
+        pending.append(mirror)
+
+    def _materialize(m: dict) -> SectionNode:
+        n = m["node"]
+        return SectionNode(
+            node_id=n.node_id, title=n.title, level=n.level,
+            page_start=n.page_start, page_end=n.page_end,
+            anchor=n.anchor, language=n.language,
+            children=tuple(_materialize(c) for c in m["children"]),
+        )
+
+    return tuple(_materialize(r) for r in roots)
+
+
+def _build_pdf_tree_from_inferred(
+    inferred: InferenceResult,
+    n_pages: int,
+    page_texts: list[str],
+    md_lines: list[str],
+) -> tuple[SectionNode, ...]:
+    """Build a tree from inferred (page, level, title) heading list.
+
+    Uses the same nest-by-level routine. End-page for each heading is the page
+    of the next heading at the same or shallower level minus 1, or n_pages
+    for the last.
+    """
+    items = list(inferred.headings)
+    # Compute end_page per item
+    end_pages: list[int] = []
+    for i, h in enumerate(items):
+        end = n_pages
+        for j in range(i + 1, len(items)):
+            if items[j].level <= h.level:
+                end = max(items[j].page - 1, h.page)
+                break
+        end_pages.append(end)
+
+    flat_nodes: list[SectionNode] = []
+    for i, h in enumerate(items):
+        end_page = end_pages[i]
+        anchor = f"sec-{i + 1:04d}"
+        md_lines.append(f'<a id="{anchor}"></a>')
+        md_lines.append("#" * min(h.level, 6) + f" {h.title}")
+        md_lines.append("")
+        # Body text for this section spans h.page..end_page; emit page text once per page.
+        last_emitted = -1
+        for p in range(h.page, end_page + 1):
+            if 1 <= p <= len(page_texts) and p != last_emitted:
+                txt = page_texts[p - 1].strip()
+                if txt:
+                    md_lines.append(txt)
+                    md_lines.append("")
+                last_emitted = p
+        flat_nodes.append(SectionNode(
+            node_id=f"{i + 1:04d}", title=h.title, level=h.level,
+            page_start=h.page, page_end=end_page,
+            anchor=anchor, language="und",
+        ))
+
+    return _nest_by_level(flat_nodes)
+
+
+def _build_pdf_page_fallback(
+    n_pages: int, page_texts: list[str], md_lines: list[str]
+) -> tuple[SectionNode, ...]:
+    """The v0.1 page-per-section fallback when no TOC and no inferred headings."""
+    children: list[SectionNode] = []
+    for p in range(1, n_pages + 1):
+        anchor = f"sec-{p:04d}"
+        md_lines.append(f'<a id="{anchor}"></a>')
+        md_lines.append(f"# Page {p}")
+        md_lines.append("")
+        if page_texts[p - 1].strip():
+            md_lines.append(page_texts[p - 1].strip())
+            md_lines.append("")
+        children.append(SectionNode(
+            node_id=f"{p:04d}", title=f"Page {p}", level=1,
+            page_start=p, page_end=p, anchor=anchor, language="und",
+        ))
+    return tuple(children)
 
 
 def _insert_image_after_page(md_lines: list[str], page: int, ref_line: str) -> None:
@@ -149,7 +284,6 @@ def _insert_image_after_page(md_lines: list[str], page: int, ref_line: str) -> N
     needle = f'<a id="sec-{page:04d}"></a>'
     for i, line in enumerate(md_lines):
         if line == needle:
-            # Insert two lines after (after the heading line).
             insert_at = min(i + 3, len(md_lines))
             md_lines.insert(insert_at, ref_line)
             md_lines.insert(insert_at + 1, "")

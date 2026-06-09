@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from pathlib import Path
 
 import openpyxl
@@ -10,6 +11,33 @@ from openpyxl import __version__ as openpyxl_version
 
 from ..contracts import ExtractionResult, SectionNode, TableRef
 from ._common import make_meta
+
+
+def _natural_key(name: str) -> tuple:
+    """Sort key that orders sheets by leading numeric prefix.
+
+    Examples:
+      '01_Intro'  -> ((0, 1), (1, '_intro'))
+      '02_Data'   -> ((0, 2), (1, '_data'))
+      '10_Final'  -> ((0, 10), (1, '_final'))
+      'Misc'      -> ((1, 'misc'),)    (sheets without numeric prefix sort after)
+    """
+    parts = re.split(r"(\d+)", name)
+    # Strip empties from the split (regex split with a capture group introduces them)
+    parts = [p for p in parts if p != ""]
+    if not parts:
+        return ((1, ""),)
+    out: list[tuple[int, object]] = []
+    leading_num = parts[0].isdigit()
+    for p in parts:
+        if p.isdigit():
+            out.append((0, int(p)))
+        else:
+            out.append((1, p.lower()))
+    if not leading_num:
+        # Force non-leading-numeric sheets to sort AFTER all leading-numeric ones.
+        out.insert(0, (2, 0))
+    return tuple(out)
 
 
 class XlsxAdapter:
@@ -30,8 +58,10 @@ class XlsxAdapter:
         anchor_count = 0
         table_count = 0
 
+        # Sort sheet names by natural numeric prefix for cross-run determinism.
+        ordered_sheet_names = sorted(wb.sheetnames, key=_natural_key)
         sheet_index = 0
-        for sheet_name in wb.sheetnames:
+        for sheet_name in ordered_sheet_names:
             sheet_index += 1
             ws = wb[sheet_name]
             anchor_count += 1
