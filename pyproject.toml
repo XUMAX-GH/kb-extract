@@ -40,7 +40,7 @@ packages = ["src/kb_extract"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra --strict-markers --strict-config"
+addopts = "-ra --strict-markers --strict-config --disable-socket"
 markers = [
   "slow: marks tests as slow (deselect with -m 'not slow')",
   "perf: performance benchmark tests",
