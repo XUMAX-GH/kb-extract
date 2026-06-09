@@ -13,7 +13,7 @@ from collections import Counter
 from collections.abc import Iterable
 from pathlib import Path
 
-from .contracts import AssetRef, SectionNode
+from .contracts import AssetRef, ExtractionMeta, SectionNode
 from .errors import HardnessViolation
 
 _ANCHOR_RE = re.compile(r'<a id="([^"]+)"></a>')
@@ -113,3 +113,42 @@ def check_h6_asset_hash_truth(
                 invariant="H6",
                 detail=f"asset hash mismatch for {a.rel_path}: expected {a.sha256}, got {actual}",
             )
+
+
+def check_h7_source_hash_truth(meta: ExtractionMeta, src_path: Path) -> None:
+    actual = hashlib.sha256(src_path.read_bytes()).hexdigest()
+    if actual != meta.source_sha256:
+        raise HardnessViolation(
+            invariant="H7",
+            detail=(
+                f"meta.source_sha256 lies about {meta.source_path}: "
+                f"meta={meta.source_sha256}, actual={actual}"
+            ),
+        )
+
+
+def _count_titled_descendants(node: SectionNode) -> int:
+    """Count non-root nodes (level >= 1) with a non-empty title."""
+    n = 0
+    for c in node.children:
+        if c.level >= 1 and c.title.strip():
+            n += 1
+        n += _count_titled_descendants(c)
+    return n
+
+
+def check_h10_outline_source_truth(meta: ExtractionMeta, index: SectionNode) -> None:
+    # `page_fallback` does not promise structure beyond per-page nodes.
+    if meta.outline_source == "page_fallback":
+        return
+    # For `bookmark`, `heading_style`, `docling_layout`: at least one
+    # non-root titled node must exist (otherwise the adapter is lying about
+    # having found structure).
+    if _count_titled_descendants(index) == 0:
+        raise HardnessViolation(
+            invariant="H10",
+            detail=(
+                f"outline_source={meta.outline_source!r} claims structured outline, "
+                "but section tree has no non-root titled nodes"
+            ),
+        )
