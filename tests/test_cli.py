@@ -101,3 +101,58 @@ def test_kb_verify_fail_fast_returns_first_only(tmp_path):
     result = runner.invoke(main, ["verify", str(project), "--fail-fast", "--json"])
     payload = json.loads(result.output)
     assert len(payload["violations"]) == 1
+
+
+def test_kb_adapters_lists_registered_names():
+    runner = CliRunner()
+    result = runner.invoke(main, ["adapters"])
+    assert result.exit_code == 0
+    for name in ("pdf_docling", "docx", "xlsx", "pptx", "image"):
+        assert name in result.output
+
+
+def test_kb_adapters_json_machine_readable():
+    runner = CliRunner()
+    result = runner.invoke(main, ["adapters", "--json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    names = [a["name"] for a in payload]
+    assert "docx" in names
+
+
+def test_kb_manifest_table_default(tmp_path):
+    project = _setup(tmp_path)
+    runner = CliRunner()
+    runner.invoke(main, ["extract", str(project)])
+    result = runner.invoke(main, ["manifest", str(project)])
+    assert result.exit_code == 0
+    assert "a.noop" in result.output
+    assert "ok" in result.output.lower()
+
+
+def test_kb_manifest_status_filter(tmp_path):
+    project = _setup(tmp_path)
+    (project / "weird.unsupported").write_bytes(b"x")
+    runner = CliRunner()
+    runner.invoke(main, ["extract", str(project)])
+    result = runner.invoke(main, ["manifest", str(project), "--status", "skipped"])
+    assert result.exit_code == 0
+    assert "weird.unsupported" in result.output
+    assert "a.noop" not in result.output
+
+
+def test_kb_manifest_format_json(tmp_path):
+    project = _setup(tmp_path)
+    runner = CliRunner()
+    runner.invoke(main, ["extract", str(project)])
+    result = runner.invoke(main, ["manifest", str(project), "--format", "json"])
+    assert result.exit_code == 0
+    payload = json.loads(result.output)
+    assert any(row["source_path"].endswith("a.noop") for row in payload)
+
+
+def test_kb_version_outputs_version():
+    runner = CliRunner()
+    result = runner.invoke(main, ["--version"])
+    assert result.exit_code == 0
+    assert "0.1.0" in result.output

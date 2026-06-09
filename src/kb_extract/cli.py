@@ -9,13 +9,19 @@ Exit codes:
 
 from __future__ import annotations
 
+import csv as _csv
+import io as _io
 import json
 import sys
+from dataclasses import asdict
 from pathlib import Path
 
 import click
 
 from . import __version__
+from .adapters.base import get_default_registry
+from .layout import find_project_root
+from .manifest import Manifest
 from .orchestrator import run as orch_run
 from .verify import verify_project
 
@@ -93,3 +99,53 @@ def verify(path: Path, as_json: bool, fail_fast: bool) -> None:
         for v in report.violations:
             click.echo(f"  [violation] {v}", err=True)
     sys.exit(0 if report.ok else 3)
+
+
+@main.command()
+@click.option("--json", "as_json", is_flag=True)
+def adapters(as_json: bool) -> None:
+    """List registered adapters."""
+    reg = get_default_registry()
+    rows = [
+        {"name": a.name, "version": a.version, "extensions": list(a.extensions)}
+        for a in reg.all()
+    ]
+    if as_json:
+        click.echo(json.dumps(rows, indent=2, sort_keys=True))
+        return
+    click.echo(f"{'NAME':<20} {'VERSION':<10} EXTENSIONS")
+    for r in rows:
+        click.echo(f"{r['name']:<20} {r['version']:<10} {','.join(r['extensions'])}")
+
+
+@main.command(name="manifest")
+@click.argument("path", type=click.Path(exists=True, path_type=Path))
+@click.option("--status",
+              type=click.Choice(["ok", "partial", "failed", "skipped"]),
+              default=None)
+@click.option("--format", "fmt", type=click.Choice(["table", "json", "csv"]), default="table")
+def manifest_cmd(path: Path, status: str | None, fmt: str) -> None:
+    """Show manifest rows for the project."""
+    project_root = find_project_root(path)
+    db = project_root / "kb" / "manifest.sqlite"
+    if not db.exists():
+        click.echo(f"no manifest at {db}", err=True)
+        sys.exit(1)
+    m = Manifest(db)
+    try:
+        rows = [r for r in m.iter() if status is None or r.status == status]
+    finally:
+        m.close()
+    if fmt == "json":
+        click.echo(json.dumps([asdict(r) for r in rows], indent=2, sort_keys=True))
+    elif fmt == "csv":
+        buf = _io.StringIO()
+        writer = _csv.writer(buf)
+        writer.writerow(["source_path", "status", "adapter_name", "output_sha256"])
+        for r in rows:
+            writer.writerow([r.source_path, r.status, r.adapter_name or "", r.output_sha256 or ""])
+        click.echo(buf.getvalue())
+    else:
+        click.echo(f"{'STATUS':<10} {'ADAPTER':<15} SOURCE")
+        for r in rows:
+            click.echo(f"{r.status:<10} {(r.adapter_name or '-'):<15} {r.source_path}")
