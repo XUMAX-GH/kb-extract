@@ -1,0 +1,25 @@
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+build/
+*.egg-info/
+.coverage
+htmlcov/
+
+# Local IDE
+.vscode/*
+!.vscode/tasks.json.example
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# kb-extract working state
+*.tmp/
