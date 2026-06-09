@@ -70,10 +70,19 @@ def run(
     force: bool = False,
     dry_run: bool = False,
     only_exts: tuple[str, ...] | None = None,
+    _nest_depth: int = 0,
 ) -> RunReport:
     """Top-level extraction over a project root or file. See spec §5.1."""
     if registry is None:
         registry = get_default_registry()
+
+    if _nest_depth > 5:
+        return RunReport()  # zip too nested; adapter handles warning
+
+    # Wire ZipAdapter with registry handle if zip extension not yet registered.
+    if ".zip" not in {ext for a in registry.all() for ext in a.extensions}:
+        from .adapters.zip import ZipAdapter
+        registry.register(ZipAdapter(child_registry=registry, nest_depth=_nest_depth))
 
     project_root = find_project_root(path)
     sources = discover_sources(path)
