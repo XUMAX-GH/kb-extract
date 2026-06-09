@@ -8,7 +8,7 @@
     {
       "name": "kb-extract",
       "description": "将 PDF/DOCX/XLSX/PPTX/PNG/ZIP 转为可追溯的 Markdown 知识库；提供 kb CLI、Copilot 技能与 VS Code 任务。",
-      "version": "0.2.0",
+      "version": "0.3.0",
       "source": "./",
       "author": {
         "name": "XUMAX-GH"

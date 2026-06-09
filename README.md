@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml/badge.svg)](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.2.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)](CHANGELOG.md)
 
 ---
 
@@ -155,6 +155,45 @@ kb --version
 
 ---
 
+## LLM-Wiki 层（v0.3+）
+
+在 `kb/` 之上再生成一层带 evidence pin 的 wiki 文档（Karpathy LLM-Wiki 风格）。
+**抽取层**仍然 0 LLM；**只有 wiki 层**允许调 LLM。
+
+```bash
+# 用默认 mock provider（零网络，CI 可用）构建 wiki
+kb wiki build ./MyProject --provider mock --seed 0
+
+# 校验所有 [^ev-N] 都能解析到真实 anchor (H14)
+kb wiki verify ./MyProject
+```
+
+输出布局：
+
+```
+<project>/wiki/
+  index.json            ← topic 列表 + provider/seed 元数据
+  thermal.md            ← "## ... [^ev-1][^ev-2]" 文末附 footnote 定义
+  power.md
+  ...
+```
+
+每个 wiki 文档的每段事实都附 `[^ev-N]` 脚注，自动指向
+`../kb/<doc>/main.md#<anchor>`。新增 3 条 hardness 不变量：
+
+- **H14**：每个 `[^ev-N]` 都解析到真实 kb anchor（`kb wiki verify` 强制）
+- **H15**：固定 `--provider mock --seed N` 时输出 byte 一致（确定性）
+- **H16**：`kb wiki build` 不修改 `kb/` 下任何文件
+
+切换 provider 用环境变量或 `--provider`：
+
+```bash
+KB_EXTRACT_LLM_PROVIDER=openai kb wiki build ./MyProject
+# v0.3 仅实现了 mock；openai/anthropic/ollama 留了 protocol 占位
+```
+
+---
+
 ## 作为 Copilot CLI 技能安装
 
 本仓库本身就是一个 **Copilot CLI 插件**（含 `.claude-plugin/marketplace.json`
@@ -254,6 +293,9 @@ kb extract <path> ──► orchestrator ──► Extractor (按格式分派的
 | H11 | manifest 的 source_sha256 ↔ 文件 SHA-256 必须吻合 |
 | H12 | 同一源路径在 manifest 中唯一 |
 | H13 | 同源文件在 Ubuntu / Windows / macOS 三平台输出 hash 一致 |
+| H14 | 每个 wiki `[^ev-N]` 都解析到真实 kb anchor（v0.3+） |
+| H15 | 固定 LLM provider + seed 时 wiki 输出 byte 一致（v0.3+） |
+| H16 | `kb wiki build` 不修改 `kb/` 下任何文件（v0.3+） |
 
 `kb verify` 把 13 条全部重跑一遍，任何一条违规都返回退出码 3。
 

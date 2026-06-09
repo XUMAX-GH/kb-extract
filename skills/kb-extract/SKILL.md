@@ -18,6 +18,12 @@ triggers:
   - "抽取文档"
   - "校验知识库"
   - "验证知识库"
+  - "build wiki"
+  - "build wiki from kb"
+  - "generate wiki"
+  - "构建wiki"
+  - "生成知识wiki"
+  - "校验wiki"
 ---
 
 # kb-extract 技能
@@ -47,5 +53,16 @@ CLI 里。
 | "重新抽取" | `scripts/extract.{ps1,sh} X --force` |
 | "试运行（dry-run）抽取" | `scripts/extract.{ps1,sh} X --dry-run` |
 | "校验知识库" | `scripts/verify.{ps1,sh} X` |
+| "构建 wiki / generate wiki" | `kb wiki build X --provider mock --seed 0` |
+| "校验 wiki" | `kb wiki verify X` |
 
 所有脚本都使用 `kb ... --json`，并把解析后的状态展示给用户。
+
+### 关于 wiki 子命令（v0.3+）
+
+`kb wiki build` **是包内唯一允许调 LLM 的层**。技能在调用它时必须：
+
+1. 默认使用 `--provider mock --seed 0` —— 这样产物是确定性的，无网络
+2. 若用户明确要求真实 provider（如 `--provider openai`），先确认环境变量
+   `KB_EXTRACT_LLM_PROVIDER` 与对应密钥已就绪
+3. 跑完之后立刻调 `kb wiki verify`，若有违规则原文呈现给用户（同 extract 流程）
