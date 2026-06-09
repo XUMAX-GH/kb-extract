@@ -35,7 +35,7 @@ class PdfDoclingAdapter:
         for page in doc:
             try:
                 page_texts.append(page.get_text("text") or "")
-            except Exception:  # noqa: BLE001
+            except Exception:
                 page_texts.append("")
                 warnings.append(f"pdf.font_decode_failed:p{page.number + 1}")
 
@@ -94,7 +94,7 @@ class PdfDoclingAdapter:
                 xref = img[0]
                 try:
                     info = doc.extract_image(xref)
-                except Exception:  # noqa: BLE001
+                except Exception:
                     warnings.append(f"pdf.font_decode_failed:p{page_idx + 1}")
                     continue
                 ext = info.get("ext", "png")
@@ -112,10 +112,11 @@ class PdfDoclingAdapter:
                     alt=fname,
                 ))
 
-        if any(not pt.strip() for pt in page_texts):
+        if any(not pt.strip() for pt in page_texts) and all(
+            not pt.strip() for pt in page_texts
+        ):
             # Heuristic: if no text on any page, mark scanned warning.
-            if all(not pt.strip() for pt in page_texts):
-                warnings.append("pdf.scanned_no_text_layer")
+            warnings.append("pdf.scanned_no_text_layer")
 
         root = SectionNode(
             node_id="0000", title=src.stem, level=0,
