@@ -15,7 +15,8 @@ Status = Literal["ok", "partial", "failed", "skipped"]
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sources (
-    source_path        TEXT PRIMARY KEY,
+    key                TEXT PRIMARY KEY,
+    source_path        TEXT,
     source_sha256      TEXT,
     source_bytes       INTEGER,
     source_mtime_iso   TEXT,
@@ -65,19 +66,9 @@ class Manifest:
     def close(self) -> None:
         self.conn.close()
 
-    def _key(self, src: Path, meta: ExtractionMeta | None = None) -> str:
-        """Extract key for storage/lookup.
-        
-        Prefers metadata's source_path if provided (for consistency with stored data),
-        falls back to extracting relative path from src.
-        """
-        if meta is not None:
-            return meta.source_path
-        # Extract relative path from src (last 2+ components) using posix format
-        parts = src.parts
-        if len(parts) >= 2:
-            return Path(*parts[-2:]).as_posix()
-        return src.as_posix()
+    def _key(self, src: Path) -> str:
+        """Canonical key for storage/lookup: resolved POSIX path of src."""
+        return src.resolve().as_posix()
 
     def upsert(
         self,
@@ -90,12 +81,13 @@ class Manifest:
             self.conn.execute(
                 """
                 INSERT INTO sources(
-                    source_path, source_sha256, source_bytes, source_mtime_iso,
+                    key, source_path, source_sha256, source_bytes, source_mtime_iso,
                     adapter_name, adapter_version, tool_versions_json,
                     extracted_at_iso, outline_source, status, warnings_json,
                     skipped_reason, error_repr, output_sha256
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-                ON CONFLICT(source_path) DO UPDATE SET
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                ON CONFLICT(key) DO UPDATE SET
+                    source_path=excluded.source_path,
                     source_sha256=excluded.source_sha256,
                     source_bytes=excluded.source_bytes,
                     source_mtime_iso=excluded.source_mtime_iso,
@@ -111,7 +103,8 @@ class Manifest:
                     output_sha256=excluded.output_sha256
                 """,
                 (
-                    self._key(src, meta),
+                    self._key(src),
+                    meta.source_path,
                     meta.source_sha256,
                     meta.source_bytes,
                     meta.source_mtime_iso,
@@ -132,29 +125,29 @@ class Manifest:
         with self.conn:
             self.conn.execute(
                 """
-                INSERT INTO sources(source_path, status, skipped_reason)
-                VALUES (?,?,?)
-                ON CONFLICT(source_path) DO UPDATE SET
+                INSERT INTO sources(key, source_path, status, skipped_reason)
+                VALUES (?,?,?,?)
+                ON CONFLICT(key) DO UPDATE SET
                     status='skipped', skipped_reason=excluded.skipped_reason
                 """,
-                (self._key(src), "skipped", reason),
+                (self._key(src), src.as_posix(), "skipped", reason),
             )
 
     def mark_failed(self, src: Path, error_repr: str) -> None:
         with self.conn:
             self.conn.execute(
                 """
-                INSERT INTO sources(source_path, status, error_repr)
-                VALUES (?,?,?)
-                ON CONFLICT(source_path) DO UPDATE SET
+                INSERT INTO sources(key, source_path, status, error_repr)
+                VALUES (?,?,?,?)
+                ON CONFLICT(key) DO UPDATE SET
                     status='failed', error_repr=excluded.error_repr
                 """,
-                (self._key(src), "failed", error_repr),
+                (self._key(src), src.as_posix(), "failed", error_repr),
             )
 
     def get(self, src: Path) -> ManifestRow | None:
         cur = self.conn.execute(
-            "SELECT * FROM sources WHERE source_path = ?", (self._key(src),)
+            "SELECT * FROM sources WHERE key = ?", (self._key(src),)
         )
         row = cur.fetchone()
         if row is None:
