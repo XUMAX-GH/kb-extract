@@ -10,6 +10,7 @@ from kb_extract.hardness import (
     check_h5_asset_closure,
     check_h6_asset_hash_truth,
     check_h7_source_hash_truth,
+    check_h9_page_range_closure,
     check_h10_outline_source_truth,
 )
 
@@ -189,3 +190,50 @@ def test_h10_page_fallback_always_passes():
     )
     meta = _meta(outline_source="page_fallback")
     check_h10_outline_source_truth(meta, root)
+
+
+def _leaf(ps, pe, *, anchor="sec", nid="x"):
+    return SectionNode(
+        node_id=nid, title=str(nid), level=1, page_start=ps, page_end=pe,
+        anchor=anchor, language="en",
+    )
+
+
+def _root_with(leaves):
+    return SectionNode(
+        node_id="0", title="R", level=0, page_start=1, page_end=max(lf.page_end for lf in leaves),
+        anchor="", language="en", children=tuple(leaves),
+    )
+
+
+def test_h9_passes_when_leaves_cover_1_to_n_exactly():
+    root = _root_with([_leaf(1, 3, nid="a"), _leaf(4, 5, nid="b")])
+    check_h9_page_range_closure(root, total_pages=5)
+
+
+def test_h9_fails_on_gap():
+    root = _root_with([_leaf(1, 2, nid="a"), _leaf(4, 5, nid="b")])
+    with pytest.raises(HardnessViolation) as e:
+        check_h9_page_range_closure(root, total_pages=5)
+    assert e.value.invariant == "H9"
+    assert "gap" in e.value.detail.lower() or "missing" in e.value.detail.lower()
+
+
+def test_h9_fails_on_overlap():
+    root = _root_with([_leaf(1, 3, nid="a"), _leaf(2, 4, nid="b")])
+    with pytest.raises(HardnessViolation) as e:
+        check_h9_page_range_closure(root, total_pages=4)
+    assert e.value.invariant == "H9"
+    assert "overlap" in e.value.detail.lower()
+
+
+def test_h9_fails_when_last_page_uncovered():
+    root = _root_with([_leaf(1, 3, nid="a")])
+    with pytest.raises(HardnessViolation) as e:
+        check_h9_page_range_closure(root, total_pages=5)
+    assert e.value.invariant == "H9"
+
+
+def test_h9_accepts_single_page_doc():
+    root = _root_with([_leaf(1, 1, nid="a")])
+    check_h9_page_range_closure(root, total_pages=1)
