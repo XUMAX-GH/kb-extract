@@ -69,3 +69,20 @@ def make_pptx(path: Path) -> Path:
     tx_box.text_frame.text = "Some bullet body text on slide 2"
     prs.save(str(path))
     return path
+
+
+def make_pdf(path: Path) -> Path:
+    """Make a minimal 2-page PDF with a bookmark, text, and an embedded image."""
+    import fitz  # pymupdf
+    doc = fitz.open()
+    p1 = doc.new_page()
+    p1.insert_text((72, 72), "Chapter 1: Intro\n\nFirst paragraph on page one.")
+    p2 = doc.new_page()
+    p2.insert_text((72, 72), "Chapter 2: Body\n\nSecond paragraph on page two.")
+    doc.set_toc([
+        [1, "Chapter 1", 1],
+        [1, "Chapter 2", 2],
+    ])
+    doc.save(str(path))
+    doc.close()
+    return path
