@@ -2,13 +2,15 @@ import hashlib
 
 import pytest
 
-from kb_extract.contracts import AssetRef, SectionNode
+from kb_extract.contracts import AssetRef, ExtractionMeta, SectionNode
 from kb_extract.errors import HardnessViolation
 from kb_extract.hardness import (
     check_h3_anchor_uniqueness,
     check_h4_anchor_completeness,
     check_h5_asset_closure,
     check_h6_asset_hash_truth,
+    check_h7_source_hash_truth,
+    check_h10_outline_source_truth,
 )
 
 
@@ -72,6 +74,16 @@ def _asset(rel_path: str, sha: str, *, kind: str = "image", page: int = 1) -> As
     return AssetRef(kind=kind, rel_path=rel_path, page=page, sha256=sha)
 
 
+def _meta(**kw):
+    defaults: dict = dict(
+        source_path="x.pdf", source_sha256="a" * 64, source_bytes=1, source_mtime_iso="t",
+        adapter_name="p", adapter_version="v", tool_versions={}, extracted_at_iso="t",
+        outline_source="bookmark", status="ok",
+    )
+    defaults.update(kw)
+    return ExtractionMeta(**defaults)
+
+
 def test_h5_passes_when_md_assets_match_filesystem_and_assetrefs(tmp_path):
     (tmp_path / "assets").mkdir()
     (tmp_path / "assets" / "p1-img1.png").write_bytes(b"\x89PNGdata")
@@ -124,3 +136,56 @@ def test_h6_fails_when_hash_lies(tmp_path):
         check_h6_asset_hash_truth(assets, tmp_path)
     assert e.value.invariant == "H6"
     assert "assets/p1.png" in e.value.detail
+
+
+def test_h7_passes_when_meta_hash_matches_file(tmp_path):
+    src = tmp_path / "src.pdf"
+    data = b"%PDF-1.7 fake"
+    src.write_bytes(data)
+    sha = hashlib.sha256(data).hexdigest()
+    meta = _meta(source_sha256=sha)
+    check_h7_source_hash_truth(meta, src)
+
+
+def test_h7_fails_when_meta_hash_lies(tmp_path):
+    src = tmp_path / "src.pdf"
+    src.write_bytes(b"real")
+    meta = _meta(source_sha256="0" * 64)
+    with pytest.raises(HardnessViolation) as e:
+        check_h7_source_hash_truth(meta, src)
+    assert e.value.invariant == "H7"
+
+
+def test_h10_bookmark_passes_when_at_least_one_node_marked_bookmark():
+    # We model "derived from bookmark" by a non-empty title at level >= 1.
+    leaf = SectionNode(
+        node_id="0001", title="From bookmark", level=1, page_start=1, page_end=1,
+        anchor="sec-1", language="en",
+    )
+    root = SectionNode(
+        node_id="0000", title="Root", level=0, page_start=1, page_end=1,
+        anchor="", language="en", children=(leaf,),
+    )
+    meta = _meta(outline_source="bookmark")
+    check_h10_outline_source_truth(meta, root)
+
+
+def test_h10_bookmark_fails_when_only_root_exists():
+    # outline_source=bookmark requires at least one non-root titled node.
+    root = SectionNode(
+        node_id="0000", title="Root", level=0, page_start=1, page_end=1,
+        anchor="", language="en",
+    )
+    meta = _meta(outline_source="bookmark")
+    with pytest.raises(HardnessViolation) as e:
+        check_h10_outline_source_truth(meta, root)
+    assert e.value.invariant == "H10"
+
+
+def test_h10_page_fallback_always_passes():
+    root = SectionNode(
+        node_id="0000", title="Root", level=0, page_start=1, page_end=1,
+        anchor="", language="en",
+    )
+    meta = _meta(outline_source="page_fallback")
+    check_h10_outline_source_truth(meta, root)
