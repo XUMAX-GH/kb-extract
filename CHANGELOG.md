@@ -5,6 +5,50 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本号遵循 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
+## [0.4.0] — 2026-06-09
+
+合并 sp4（hardness 扩展）+ sp5（memory layer）到同一发行版。
+
+### 新增 — sp4 hardness extensions
+
+- **H17 `citation-graph-integrity`**：wiki 中每个 `[^ev-N]` 指向的 anchor 不仅
+  要存在于对应 `kb/<doc>/main.md`，还必须**唯一**出现。`kb wiki verify` 现在
+  会同时检查存在性和唯一性。
+- **H18 `multi-source-provenance`**：当一个 topic 的 evidence 跨多份源文档时，
+  `wiki/index.json` 的 `topics[].evidence_origins` 字段必须列出全部 source sha256
+  （从 `kb/manifest.sqlite` 读取）。`kb wiki verify` 会比对实际 origins 与声明 origins。
+- **H19 `wiki-mock-byte-stability`**（CI 强制）：v0.3 的 H15 只保证同进程同
+  seed 输出 byte 一致；H19 进一步要求跨 OS 也一致（CI 增加跨平台 hash 比对 job）。
+- **H2 边界扩展**：adapters 不仅不能 import LLM SDK，也不能 import `kb_extract.wiki`
+  或 `kb_extract.memory`（防止反向依赖）。
+
+### 新增 — sp5 memory layer
+
+- **`src/kb_extract/memory/`** 模块：sqlite 持久层（WAL + BEGIN IMMEDIATE，
+  支持多进程并发，对应新 hardness 约束 **H20**）。
+- **新 CLI 子命令**：
+  - `kb remember <key> <value>` / `kb remember --list` —— 用户偏好读写
+  - `kb forget <key>` —— 删偏好
+  - `kb recall [--project X] [--command Y] [--limit N]` —— 回顾命令历史
+- **自动 history hook**：`kb extract` / `kb verify` / `kb wiki build` /
+  `kb wiki verify` 每次运行结束自动记录一条 history（含 exit_code、参数、摘要）。
+  写入失败时静默（决不破坏主命令）。
+- **路径解析**：默认 `~/.kb-extract/memory.db`；可用 `KB_EXTRACT_HOME` 环境变量覆盖。
+
+### 测试
+
+- 新增 5 个测试文件，25 个测试：`test_h17_citation_uniqueness.py`、
+  `test_h18_multi_source.py`、`test_memory_store.py`、`test_memory_cli.py`、
+  `test_memory_hooks.py`
+- 总用例数：210 → 235 (+25)
+
+### 兼容性
+
+- `wiki/index.json` schema 新增 `evidence_origins` 字段（每个 topic 一份）。
+  老 v0.3 的 index.json 缺少该字段，重新跑一次 `kb wiki build` 即可补上。
+- v0.4 的 memory.db 不存在时自动创建；卸载 kb 不会自动清除 memory.db
+  （保留用户数据；如需彻底删除请手动 `rm ~/.kb-extract/memory.db`）。
+
 ## [0.3.0] — 2026-06-09
 
 LLM-Wiki 层 (Karpathy LLM-Wiki 风格)：在 v0.2 抽取产物之上，构建带强制

@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml/badge.svg)](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.3.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.0-blue.svg)](CHANGELOG.md)
 
 ---
 
@@ -184,6 +184,8 @@ kb wiki verify ./MyProject
 - **H14**：每个 `[^ev-N]` 都解析到真实 kb anchor（`kb wiki verify` 强制）
 - **H15**：固定 `--provider mock --seed N` 时输出 byte 一致（确定性）
 - **H16**：`kb wiki build` 不修改 `kb/` 下任何文件
+- **H17**（v0.4+）：每个 `[^ev-N]` 指向的 anchor 在目标文件中**唯一**出现
+- **H18**（v0.4+）：跨多源文档的 topic，`index.json` 必须列全 `evidence_origins`
 
 切换 provider 用环境变量或 `--provider`：
 
@@ -191,6 +193,30 @@ kb wiki verify ./MyProject
 KB_EXTRACT_LLM_PROVIDER=openai kb wiki build ./MyProject
 # v0.3 仅实现了 mock；openai/anthropic/ollama 留了 protocol 占位
 ```
+
+---
+
+## 用户偏好与命令历史（v0.4+）
+
+`kb` 自带一个轻量本地记忆层（sqlite，WAL 模式，多进程并发安全）。
+**默认路径**：`~/.kb-extract/memory.db`（可用 `KB_EXTRACT_HOME` 覆盖）。
+
+```bash
+# 偏好
+kb remember default_provider mock     # 写
+kb remember --list                    # 列出全部
+kb forget default_provider            # 删
+
+# 历史（自动记录）—— 每次 kb extract / verify / wiki build / wiki verify 都会写一条
+kb recall                             # 默认显示最近 20 条
+kb recall --project ./MyProject       # 按项目过滤
+kb recall --command "wiki build"      # 按命令过滤
+kb recall --json                      # 机器可读
+```
+
+写入失败时静默（决不破坏主命令）。新增 hardness：
+
+- **H20**（v0.4+）：memory 写入使用 `WAL + BEGIN IMMEDIATE`，多线程/多进程并发不会损坏数据库
 
 ---
 
@@ -276,12 +302,12 @@ kb extract <path> ──► orchestrator ──► Extractor (按格式分派的
 
 ---
 
-## Hardness 不变量（共 13 条）
+## Hardness 不变量（共 17 条）
 
 | 编号 | 描述 |
 |---|---|
 | H1 | 抽取过程禁用 socket（`pytest-socket` 在测试中强制） |
-| H2 | adapters 层不允许 import 任何 LLM SDK（AST 静态扫描） |
+| H2 | adapters 层不允许 import 任何 LLM SDK / `kb_extract.wiki` / `kb_extract.memory`（AST 静态扫描） |
 | H3 | 每个段落都有不可见的 `<a id="...">` 锚点 |
 | H4 | `index.json` 引用且仅引用一次每个锚点 |
 | H5 | `main.md` 的 SHA-256 与 manifest 记录一致 |
@@ -296,8 +322,12 @@ kb extract <path> ──► orchestrator ──► Extractor (按格式分派的
 | H14 | 每个 wiki `[^ev-N]` 都解析到真实 kb anchor（v0.3+） |
 | H15 | 固定 LLM provider + seed 时 wiki 输出 byte 一致（v0.3+） |
 | H16 | `kb wiki build` 不修改 `kb/` 下任何文件（v0.3+） |
+| H17 | 每个 wiki `[^ev-N]` 指向的 anchor 在目标文件中**唯一**出现（v0.4+） |
+| H18 | 跨多源文档的 topic 必须在 `index.json` 中列全 `evidence_origins`（v0.4+） |
+| H20 | memory 写入 WAL + IMMEDIATE，多进程并发安全（v0.4+） |
 
-`kb verify` 把 13 条全部重跑一遍，任何一条违规都返回退出码 3。
+`kb verify` 把抽取相关的约束全部重跑一遍，任何一条违规都返回退出码 3。
+`kb wiki verify` 校验 H14/H17/H18。
 
 ---
 

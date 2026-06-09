@@ -26,6 +26,29 @@ from .orchestrator import run as orch_run
 from .verify import verify_project
 
 
+def _record_history(
+    project_root: Path,
+    command: str,
+    args: dict,
+    exit_code: int,
+    summary: str,
+) -> None:
+    """Best-effort memory write; never raises into user-facing code."""
+    try:
+        from .memory import MemoryStore
+        with MemoryStore() as m:
+            m.record(
+                project_root=str(Path(project_root).resolve()),
+                command=command,
+                args=args,
+                exit_code=exit_code,
+                summary=summary,
+            )
+    except Exception:
+        # memory is non-essential; never break a kb command for a memory bug
+        pass
+
+
 @click.group()
 @click.version_option(__version__, prog_name="kb")
 def main() -> None:
@@ -75,7 +98,14 @@ def extract(
         )
         for v in report.violations:
             click.echo(f"  [violation] {v}", err=True)
-    sys.exit(1 if report.failed_count or report.violations else 0)
+    exit_code = 1 if report.failed_count or report.violations else 0
+    _record_history(
+        path, "extract",
+        {"force": force, "dry_run": dry_run, "only": list(only)},
+        exit_code,
+        f"ok={report.ok_count} failed={report.failed_count}",
+    )
+    sys.exit(exit_code)
 
 
 @main.command()
@@ -98,7 +128,14 @@ def verify(path: Path, as_json: bool, fail_fast: bool) -> None:
         )
         for v in report.violations:
             click.echo(f"  [violation] {v}", err=True)
-    sys.exit(0 if report.ok else 3)
+    exit_code = 0 if report.ok else 3
+    _record_history(
+        path, "verify",
+        {"fail_fast": fail_fast},
+        exit_code,
+        f"files_checked={report.files_checked} violations={len(report.violations)}",
+    )
+    sys.exit(exit_code)
 
 
 @main.command()
@@ -158,7 +195,14 @@ def wiki_build(path: Path, provider: str, seed: int, dry_run: bool, as_json: boo
             f"provider={result.provider_name} seed={result.seed}"
             + (" (dry-run)" if dry_run else "")
         )
-    sys.exit(0 if result.ok else 1)
+    exit_code = 0 if result.ok else 1
+    _record_history(
+        path, "wiki build",
+        {"provider": provider, "seed": seed, "dry_run": dry_run},
+        exit_code,
+        f"topics={len(result.topics)} unresolved={result.unresolved_total}",
+    )
+    sys.exit(exit_code)
 
 
 @wiki_group.command(name="verify")
@@ -182,7 +226,88 @@ def wiki_verify(path: Path, as_json: bool) -> None:
                 click.echo(f"  [violation] {v}", err=True)
         else:
             click.echo("wiki verify: ok")
-    sys.exit(3 if violations else 0)
+    exit_code = 3 if violations else 0
+    _record_history(
+        path, "wiki verify",
+        {},
+        exit_code,
+        f"violations={len(violations)}",
+    )
+    sys.exit(exit_code)
+
+
+@main.command(name="remember")
+@click.argument("key", required=False)
+@click.argument("value", required=False)
+@click.option("--list", "list_all", is_flag=True, help="列出所有已记录的偏好。")
+@click.option("--json", "as_json", is_flag=True, help="JSON 输出。")
+def remember_cmd(key: str | None, value: str | None, list_all: bool, as_json: bool) -> None:
+    """记录或查询用户偏好。kb remember KEY VALUE 写入；kb remember --list 全部列出。"""
+    from .memory import MemoryStore
+
+    with MemoryStore() as m:
+        if list_all or (key is None and value is None):
+            prefs = m.list_prefs()
+            if as_json:
+                click.echo(json.dumps(prefs, indent=2, sort_keys=True, ensure_ascii=False))
+            else:
+                if not prefs:
+                    click.echo("(no preferences set)")
+                else:
+                    for k, v in prefs.items():
+                        click.echo(f"{k} = {v}")
+            return
+        if key is None or value is None:
+            click.echo("usage: kb remember <key> <value>  OR  kb remember --list", err=True)
+            sys.exit(2)
+        m.set_pref(key, value)
+        if as_json:
+            click.echo(json.dumps({"ok": True, "key": key, "value": value}))
+        else:
+            click.echo(f"ok: {key} = {value}")
+
+
+@main.command(name="forget")
+@click.argument("key")
+def forget_cmd(key: str) -> None:
+    """删除某条偏好。"""
+    from .memory import MemoryStore
+
+    with MemoryStore() as m:
+        deleted = m.forget_pref(key)
+    if deleted:
+        click.echo(f"forgot: {key}")
+    else:
+        click.echo(f"(no such key: {key})", err=True)
+        sys.exit(1)
+
+
+@main.command(name="recall")
+@click.option("--project", "project", default=None, help="按项目根路径过滤。")
+@click.option("--command", "command", default=None,
+              help="按命令名过滤，如 'extract' / 'wiki build'。")
+@click.option("--limit", default=20, show_default=True, help="最多返回多少条。")
+@click.option("--json", "as_json", is_flag=True, help="JSON 输出。")
+def recall_cmd(project: str | None, command: str | None, limit: int, as_json: bool) -> None:
+    """回顾以往的 kb 命令运行历史。"""
+    from .memory import MemoryStore
+    from .memory.store import history_to_dicts
+
+    with MemoryStore() as m:
+        records = m.recall(project_root=project, command=command, limit=limit)
+
+    if as_json:
+        click.echo(json.dumps(list(history_to_dicts(records)),
+                              indent=2, sort_keys=True, ensure_ascii=False))
+    else:
+        if not records:
+            click.echo("(no history)")
+        else:
+            for r in records:
+                click.echo(
+                    f"{r.ts}  exit={r.exit_code:>2}  {r.command:<12}  "
+                    f"{Path(r.project_root).name:<25} {r.summary}"
+                )
 
 
 @main.command(name="manifest")

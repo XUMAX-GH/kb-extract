@@ -81,13 +81,20 @@ def test_adapter_does_not_import_from_wiki_layer(path: Path):
             assert not mod.startswith("kb_extract.wiki"), (
                 f"{path} imports from {mod}; adapters MUST NOT depend on wiki layer."
             )
-            # Catch relative `from ..wiki ...` / `from ...wiki ...`
-            if node.level and node.module and "wiki" in (node.module or "").split("."):
-                raise AssertionError(
-                    f"{path} relative-imports wiki layer; adapters MUST stay below wiki."
+            assert not mod.startswith("kb_extract.memory"), (
+                f"{path} imports from {mod}; adapters MUST NOT depend on memory layer."
+            )
+            # Catch relative `from ..wiki ...` / `from ..memory ...`
+            if node.level and node.module:
+                parts = (node.module or "").split(".")
+                assert "wiki" not in parts and "memory" not in parts, (
+                    f"{path} relative-imports wiki/memory layer; adapters MUST stay below."
                 )
         elif isinstance(node, ast.Import):
             for n in node.names:
                 assert not n.name.startswith("kb_extract.wiki"), (
                     f"{path} imports {n.name}; adapters MUST NOT depend on wiki layer."
+                )
+                assert not n.name.startswith("kb_extract.memory"), (
+                    f"{path} imports {n.name}; adapters MUST NOT depend on memory layer."
                 )

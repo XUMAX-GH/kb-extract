@@ -1,7 +1,7 @@
 {
   "name": "kb-extract",
   "description": "确定性、零幻觉的个人知识库抽取工具：将 PDF/DOCX/XLSX/PPTX/PNG/ZIP 文档转为可追溯的 Markdown，并以 Copilot CLI 技能形式封装。",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": {
     "name": "XUMAX-GH"
   },
