@@ -12,6 +12,7 @@ from kb_extract.hardness import (
     check_h7_source_hash_truth,
     check_h9_page_range_closure,
     check_h10_outline_source_truth,
+    check_h11_warnings_allowlist,
 )
 
 
@@ -237,3 +238,20 @@ def test_h9_fails_when_last_page_uncovered():
 def test_h9_accepts_single_page_doc():
     root = _root_with([_leaf(1, 1, nid="a")])
     check_h9_page_range_closure(root, total_pages=1)
+
+
+def test_h11_passes_when_all_warnings_allowed():
+    meta = _meta(warnings=("pdf.scanned_no_text_layer", "pdf.font_decode_failed:p3"))
+    check_h11_warnings_allowlist(meta)
+
+
+def test_h11_passes_when_warnings_empty():
+    check_h11_warnings_allowlist(_meta(warnings=()))
+
+
+def test_h11_fails_on_freeform_warning():
+    meta = _meta(warnings=("pdf.scanned_no_text_layer", "freeform note"))
+    with pytest.raises(HardnessViolation) as e:
+        check_h11_warnings_allowlist(meta)
+    assert e.value.invariant == "H11"
+    assert "freeform note" in e.value.detail
