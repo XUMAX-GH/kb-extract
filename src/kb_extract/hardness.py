@@ -137,6 +137,45 @@ def _count_titled_descendants(node: SectionNode) -> int:
     return n
 
 
+def check_h9_page_range_closure(index: SectionNode, total_pages: int) -> None:
+    """Union of leaf [page_start, page_end] must equal [1, total_pages] exactly."""
+    leaves = sorted(_walk_leaves(index), key=lambda n: (n.page_start, n.page_end))
+    if not leaves:
+        raise HardnessViolation(
+            invariant="H9",
+            detail=f"no leaf sections found; cannot cover {total_pages} pages",
+        )
+    # Check overlap
+    prev_end = 0
+    for leaf in leaves:
+        if leaf.page_start <= prev_end:
+            raise HardnessViolation(
+                invariant="H9",
+                detail=(
+                    f"page-range overlap at leaf {leaf.node_id}: "
+                    f"starts at {leaf.page_start}, previous leaf ended at {prev_end}"
+                ),
+            )
+        if leaf.page_start > prev_end + 1:
+            raise HardnessViolation(
+                invariant="H9",
+                detail=(
+                    f"page-range gap before leaf {leaf.node_id}: "
+                    f"pages {prev_end + 1}..{leaf.page_start - 1} missing"
+                ),
+            )
+        prev_end = leaf.page_end
+    # Check end-of-doc coverage
+    if prev_end != total_pages:
+        raise HardnessViolation(
+            invariant="H9",
+            detail=(
+                f"page-range does not reach end of doc: covered through {prev_end}, "
+                f"total_pages={total_pages}"
+            ),
+        )
+
+
 def check_h10_outline_source_truth(meta: ExtractionMeta, index: SectionNode) -> None:
     # `page_fallback` does not promise structure beyond per-page nodes.
     if meta.outline_source == "page_fallback":
