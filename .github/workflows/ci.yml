@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install uv
+        run: pip install uv
+      - name: Create venv
+        run: uv venv --python ${{ matrix.python-version }}
+      - name: Install package + dev deps
+        run: uv pip install -e ".[dev]"
+        env:
+          PYTHONHASHSEED: "0"
+          OMP_NUM_THREADS: "1"
+      - name: Lint
+        run: uv run ruff check .
+      - name: Test
+        env:
+          PYTHONHASHSEED: "0"
+          OMP_NUM_THREADS: "1"
+        run: uv run pytest -v --cov=kb_extract --cov-report=term -m "not perf"
+      - name: Upload hash manifest (for H13 cross-platform job)
+        if: matrix.python-version == '3.11'
+        uses: actions/upload-artifact@v4
+        with:
+          name: hash-manifest-${{ matrix.os }}
+          path: tests/fixtures/_h13-output/
+          if-no-files-found: ignore
