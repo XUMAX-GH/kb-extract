@@ -55,7 +55,7 @@ dependencies = [
   "pymupdf>=1.24,<1.99",
   "python-docx>=1.1,<1.99",
   "openpyxl>=3.1,<3.99",
-  "python-pptx>=0.6.23,<0.99",
+  "python-pptx>=1.0.2,<2.0",
   "Pillow>=10.0,<10.99",
   "langdetect>=1.0.9,<1.99",
   "python-magic>=0.4.27,<0.99; sys_platform != 'win32'",
