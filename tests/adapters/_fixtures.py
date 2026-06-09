@@ -31,3 +31,23 @@ def make_docx(path: Path) -> Path:
     t.cell(1, 1).text = "2"
     doc.save(str(path))
     return path
+
+
+def make_xlsx(path: Path) -> Path:
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Summary"
+    ws["A1"] = "metric"
+    ws["B1"] = "value"
+    ws["A2"] = "count"
+    ws["B2"] = 42
+    ws["A3"] = "ratio"
+    ws["B3"] = 0.5
+    ws2 = wb.create_sheet("Details")
+    ws2["A1"] = "id"
+    ws2["B1"] = "name"
+    ws2["A2"] = 1
+    ws2["B2"] = "alpha"
+    wb.save(str(path))
+    return path
