@@ -201,3 +201,23 @@ def check_h11_warnings_allowlist(meta: ExtractionMeta) -> None:
             invariant="H11",
             detail=f"warnings not in allowlist: {bad[:5]}",
         )
+
+
+def assert_invariants(
+    result, src_path: Path, out_dir: Path, *, total_pages: int
+) -> None:
+    """Run H3..H7, H9..H11 in order, raising on the first violation.
+
+    H1 (no socket) and H2 (no LLM imports) are test-level checks.
+    H8 (determinism) is a test-mode check (double-run compare).
+    H12 (no silent skip) is enforced by the orchestrator.
+    H13 (cross-platform) is enforced in CI.
+    """
+    check_h3_anchor_uniqueness(result.markdown)
+    check_h4_anchor_completeness(result.markdown, result.index)
+    check_h5_asset_closure(result.markdown, result.assets, out_dir)
+    check_h6_asset_hash_truth(result.assets, out_dir)
+    check_h7_source_hash_truth(result.meta, src_path)
+    check_h9_page_range_closure(result.index, total_pages)
+    check_h10_outline_source_truth(result.meta, result.index)
+    check_h11_warnings_allowlist(result.meta)
