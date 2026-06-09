@@ -15,6 +15,7 @@ from pathlib import Path
 
 from .contracts import AssetRef, ExtractionMeta, SectionNode
 from .errors import HardnessViolation
+from .warnings_registry import is_warning_allowed
 
 _ANCHOR_RE = re.compile(r'<a id="([^"]+)"></a>')
 
@@ -190,4 +191,13 @@ def check_h10_outline_source_truth(meta: ExtractionMeta, index: SectionNode) -> 
                 f"outline_source={meta.outline_source!r} claims structured outline, "
                 "but section tree has no non-root titled nodes"
             ),
+        )
+
+
+def check_h11_warnings_allowlist(meta: ExtractionMeta) -> None:
+    bad = sorted(w for w in meta.warnings if not is_warning_allowed(w))
+    if bad:
+        raise HardnessViolation(
+            invariant="H11",
+            detail=f"warnings not in allowlist: {bad[:5]}",
         )
