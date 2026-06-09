@@ -65,3 +65,19 @@ jobs:
           diff -u "$a" "$b" || { echo "H13 violation: ubuntu != windows"; exit 1; }
           diff -u "$a" "$c" || { echo "H13 violation: ubuntu != macos"; exit 1; }
           echo "H13 OK"
+  performance:
+    name: Performance benchmark
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install uv
+      - run: uv venv --python 3.11
+      - run: uv pip install -e ".[dev]"
+      - run: uv run pytest -v -m perf --no-cov
+        env:
+          PYTHONHASHSEED: "0"
+          OMP_NUM_THREADS: "1"
