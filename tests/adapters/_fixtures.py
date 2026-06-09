@@ -51,3 +51,21 @@ def make_xlsx(path: Path) -> Path:
     ws2["B2"] = "alpha"
     wb.save(str(path))
     return path
+
+
+def make_pptx(path: Path) -> Path:
+    from pptx import Presentation
+    from pptx.util import Inches
+    prs = Presentation()
+    slide1 = prs.slides.add_slide(prs.slide_layouts[0])  # title slide
+    slide1.shapes.title.text = "First Slide"
+    if slide1.placeholders[1].has_text_frame:
+        slide1.placeholders[1].text = "Subtitle text"
+    slide1.notes_slide.notes_text_frame.text = "presenter note one"
+
+    slide2 = prs.slides.add_slide(prs.slide_layouts[5])  # title only
+    slide2.shapes.title.text = "Second Slide"
+    tx_box = slide2.shapes.add_textbox(Inches(1), Inches(2), Inches(4), Inches(1))
+    tx_box.text_frame.text = "Some bullet body text on slide 2"
+    prs.save(str(path))
+    return path
