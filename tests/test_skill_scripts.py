@@ -35,3 +35,17 @@ def test_skill_extract_scripts_call_kb_adapters_then_extract():
         assert "kb adapters" in body
         assert "kb extract" in body
         assert "--json" in body
+
+
+def test_skill_verify_scripts_exist():
+    skill_dir = Path(__file__).resolve().parents[1] / "skill" / "scripts"
+    assert (skill_dir / "verify.ps1").exists()
+    assert (skill_dir / "verify.sh").exists()
+
+
+def test_vscode_tasks_example_exists():
+    p = Path(__file__).resolve().parents[1] / ".vscode" / "tasks.json.example"
+    assert p.exists()
+    body = p.read_text(encoding="utf-8")
+    assert "KB: Extract" in body
+    assert "KB: Verify" in body
