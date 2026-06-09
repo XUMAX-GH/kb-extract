@@ -2,9 +2,10 @@ import hashlib
 
 import pytest
 
-from kb_extract.contracts import AssetRef, ExtractionMeta, SectionNode
+from kb_extract.contracts import AssetRef, ExtractionMeta, ExtractionResult, SectionNode
 from kb_extract.errors import HardnessViolation
 from kb_extract.hardness import (
+    assert_invariants,
     check_h3_anchor_uniqueness,
     check_h4_anchor_completeness,
     check_h5_asset_closure,
@@ -255,3 +256,50 @@ def test_h11_fails_on_freeform_warning():
         check_h11_warnings_allowlist(meta)
     assert e.value.invariant == "H11"
     assert "freeform note" in e.value.detail
+
+
+def test_assert_invariants_passes_on_clean_result(tmp_path):
+    src = tmp_path / "src.pdf"
+    data = b"%PDF-1.7"
+    src.write_bytes(data)
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    leaf = SectionNode(
+        node_id="0001", title="L", level=1, page_start=1, page_end=3,
+        anchor="sec-0001", language="en",
+    )
+    root = SectionNode(
+        node_id="0000", title="R", level=0, page_start=1, page_end=3,
+        anchor="", language="en", children=(leaf,),
+    )
+    md = '<a id="sec-0001"></a>\nbody\n'
+    meta = _meta(
+        source_path="src.pdf",
+        source_sha256=hashlib.sha256(data).hexdigest(),
+        outline_source="bookmark",
+        warnings=(),
+    )
+    result = ExtractionResult(
+        markdown=md, index=root, tables=(), assets=(), meta=meta
+    )
+
+    assert_invariants(result, src, out_dir, total_pages=3)
+
+
+def test_assert_invariants_propagates_first_violation(tmp_path):
+    src = tmp_path / "src.pdf"
+    src.write_bytes(b"x")
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    root = SectionNode(
+        node_id="0", title="R", level=0, page_start=1, page_end=1,
+        anchor="", language="en",
+    )
+    meta = _meta(source_sha256="0" * 64)  # lies → H7
+    result = ExtractionResult(
+        markdown="hi\n", index=root, tables=(), assets=(), meta=meta
+    )
+    with pytest.raises(HardnessViolation) as e:
+        assert_invariants(result, src, out_dir, total_pages=1)
+    assert e.value.invariant in ("H7", "H10")  # H10 also fires (no titled descendants)
