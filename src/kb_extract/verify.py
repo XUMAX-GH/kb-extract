@@ -25,7 +25,18 @@ def _doc_dirs(project_root: Path) -> list[Path]:
     kb = project_root / "kb"
     if not kb.exists():
         return []
-    return sorted(p for p in kb.rglob("main.md") if p.is_file())
+    # Only verify direct children: kb/<doc>/main.md. Deeper paths come from
+    # the ZIP adapter's internal `_unpacked/kb/...` recursion, which is
+    # tracked by the per-zip nested manifest (not the project-level one).
+    out: list[Path] = []
+    for p in sorted(kb.rglob("main.md")):
+        if not p.is_file():
+            continue
+        rel = p.relative_to(kb).parts
+        if len(rel) != 2:
+            continue
+        out.append(p)
+    return out
 
 
 def verify_project(project_root: Path, *, fail_fast: bool = False) -> VerifyReport:
