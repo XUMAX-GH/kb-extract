@@ -190,7 +190,7 @@ def wiki_group() -> None:
     "--provider",
     default="mock",
     show_default=True,
-    help="LLM provider 名称（v0.3 仅支持 mock；openai/anthropic/ollama 为占位）。",
+    help="LLM provider 名称：mock | cached（openai/anthropic/ollama 为占位）。",
 )
 @click.option("--seed", type=int, default=0, show_default=True, help="provider 的随机种子（H15）。")
 @click.option("--dry-run", is_flag=True, help="只 discover topics + 生成内容，不写盘。")
@@ -201,6 +201,30 @@ def wiki_group() -> None:
     default=None,
     help="从此目录读取 kb/，把 wiki/ 写入这里。",
 )
+@click.option(
+    "--responses-file",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="cached provider 的响应文件路径（JSON: {prompt_hash: response}）。",
+)
+@click.option(
+    "--record-missing",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="cached provider: 把缺失的 prompt 追加写到此 JSON 文件（不抛错）。",
+)
+@click.option(
+    "--min-evidence",
+    type=int,
+    default=1,
+    show_default=True,
+    help="只保留 evidence 数 ≥ 该值的 topic（v0.6.0）。",
+)
+@click.option(
+    "--skip-numeric-titles",
+    is_flag=True,
+    help="丢弃标题仅为数字/点号/短横线的 topic（v0.6.0）。",
+)
 def wiki_build(
     path: Path,
     provider: str,
@@ -208,6 +232,10 @@ def wiki_build(
     dry_run: bool,
     as_json: bool,
     output_dir: Path | None,
+    responses_file: Path | None,
+    record_missing: Path | None,
+    min_evidence: int,
+    skip_numeric_titles: bool,
 ) -> None:
     """基于 PATH/kb/ 重新构建 wiki/。"""
     from .wiki import build_wiki
@@ -216,8 +244,25 @@ def wiki_build(
         output_dir.mkdir(parents=True, exist_ok=True)
         output_dir = output_dir.resolve()
 
+    provider_arg: object = provider
+    if provider == "cached":
+        if responses_file is None:
+            raise click.UsageError("--provider cached 需要 --responses-file 指向响应 JSON。")
+        from .wiki.providers.cached import CachedLlmClient
+
+        provider_arg = CachedLlmClient(
+            responses_path=responses_file,
+            record_missing_path=record_missing,
+        )
+
     result = build_wiki(
-        path, provider=provider, seed=seed, dry_run=dry_run, output_dir=output_dir
+        path,
+        provider=provider_arg,
+        seed=seed,
+        dry_run=dry_run,
+        output_dir=output_dir,
+        min_evidence=min_evidence,
+        skip_numeric_titles=skip_numeric_titles,
     )
     if as_json:
         click.echo(json.dumps({
@@ -243,11 +288,102 @@ def wiki_build(
     _record_history(
         path, "wiki build",
         {"provider": provider, "seed": seed, "dry_run": dry_run,
-         "output_dir": str(output_dir) if output_dir else None},
+         "output_dir": str(output_dir) if output_dir else None,
+         "min_evidence": min_evidence,
+         "skip_numeric_titles": skip_numeric_titles},
         exit_code,
         f"topics={len(result.topics)} unresolved={result.unresolved_total}",
     )
     sys.exit(exit_code)
+
+
+@wiki_group.command(name="dump-prompts")
+@click.argument("path", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--output-dir", "-o", "output_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="从此目录读取 kb/。",
+)
+@click.option(
+    "--out",
+    "out_file",
+    type=click.Path(dir_okay=False, path_type=Path),
+    required=True,
+    help="prompts JSON 输出路径。",
+)
+@click.option(
+    "--min-evidence",
+    type=int,
+    default=1,
+    show_default=True,
+    help="只 dump evidence 数 ≥ 该值的 topic。",
+)
+@click.option(
+    "--skip-numeric-titles",
+    is_flag=True,
+    help="丢弃标题仅为数字的 topic。",
+)
+def wiki_dump_prompts(
+    path: Path,
+    output_dir: Path | None,
+    out_file: Path,
+    min_evidence: int,
+    skip_numeric_titles: bool,
+) -> None:
+    """把当前 topic 列表对应的 LLM prompts 写到 JSON，方便外部 LLM 离线生成响应。
+
+    输出形如::
+
+      {
+        "<prompt_sha256>": {
+          "topic_slug": "...",
+          "messages": [{"role":"system","content":"..."}, ...]
+        },
+        ...
+      }
+
+    用法：
+      1. kb wiki dump-prompts <project> -o <out> --out prompts.json
+      2. 用任意 LLM 生成 responses.json：{prompt_sha256: response_string}
+      3. kb wiki build <project> -o <out> --provider cached --responses-file responses.json
+    """
+    from .layout import kb_dir as _kb_dir
+    from .wiki.providers.cached import prompt_hash
+    from .wiki.topics import discover_topics
+    from .wiki.writer import _build_prompt
+
+    if output_dir is not None:
+        output_dir = output_dir.resolve()
+
+    topics = discover_topics(
+        path,
+        output_dir=output_dir,
+        min_evidence=min_evidence,
+        skip_numeric_titles=skip_numeric_titles,
+    )
+    kb_root = _kb_dir(path, output_dir)
+
+    prompts: dict[str, dict[str, object]] = {}
+    for t in topics:
+        messages = _build_prompt(t, kb_root=kb_root)
+        h = prompt_hash(messages)
+        prompts[h] = {
+            "topic_slug": t.slug,
+            "topic_title": t.title,
+            "evidence_count": len(t.evidence),
+            "messages": messages,
+        }
+
+    out_file.parent.mkdir(parents=True, exist_ok=True)
+    out_file.write_text(
+        json.dumps(prompts, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    click.echo(
+        f"wiki dump-prompts: {len(prompts)} prompts → {out_file}"
+        f" (min_evidence={min_evidence}, skip_numeric_titles={skip_numeric_titles})"
+    )
 
 
 @wiki_group.command(name="verify")

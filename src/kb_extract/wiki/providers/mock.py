@@ -94,30 +94,37 @@ class MockLlmClient:
         return "\n\n".join(paragraphs)
 
 
-def get_provider(name: str | None = None, *, seed: int = 0) -> LlmClient:
+def get_provider(name: str | None = None, *, seed: int = 0, **kwargs: object) -> LlmClient:
     """工厂：按名字返回 provider。
 
     `name` 默认从 KB_EXTRACT_LLM_PROVIDER 环境变量读，再 fallback 到 "mock"。
     真实 provider 用 lazy import，包未装时会给出清晰错误。
+
+    Extra kwargs are forwarded to the chosen provider (used by "cached" for
+    ``responses_path`` / ``record_missing_path`` / ``placeholder``).
     """
     if name is None:
         name = os.environ.get("KB_EXTRACT_LLM_PROVIDER", "mock")
     name = name.lower()
     if name == "mock":
         return MockLlmClient(seed=seed)
+    if name == "cached":
+        from .cached import CachedLlmClient
+
+        return CachedLlmClient(**kwargs)  # type: ignore[arg-type]
     if name == "openai":
         raise NotImplementedError(
-            "OpenAI provider 尚未在 v0.3.0 实现；只接好了 protocol。请使用 --provider mock。"
+            "OpenAI provider 尚未在 v0.3.0 实现；只接好了 protocol。请使用 --provider mock 或 cached。"
         )
     if name == "anthropic":
         raise NotImplementedError(
-            "Anthropic provider 尚未在 v0.3.0 实现；只接好了 protocol。请使用 --provider mock。"
+            "Anthropic provider 尚未在 v0.3.0 实现；只接好了 protocol。请使用 --provider mock 或 cached。"
         )
     if name == "ollama":
         raise NotImplementedError(
-            "Ollama provider 尚未在 v0.3.0 实现；只接好了 protocol。请使用 --provider mock。"
+            "Ollama provider 尚未在 v0.3.0 实现；只接好了 protocol。请使用 --provider mock 或 cached。"
         )
-    raise ValueError(f"未知的 LLM provider: {name!r}（支持: mock）")
+    raise ValueError(f"未知的 LLM provider: {name!r}（支持: mock, cached）")
 
 
 def _consume(_: Iterable[object]) -> None:  # pragma: no cover - 占位，禁止误用
