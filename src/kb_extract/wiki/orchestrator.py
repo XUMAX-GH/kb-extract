@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
+from ..layout import kb_dir as _kb_dir
+from ..layout import wiki_dir as _wiki_dir
 from .providers.base import LlmClient
 from .providers.mock import get_provider
 from .topics import Topic, discover_topics
@@ -50,7 +52,10 @@ def _atomic_write_bytes(path: Path, data: bytes) -> None:
     os.replace(tmp_name, path)
 
 
-def _load_source_sha256_map(project_root: Path) -> dict[str, str]:
+def _load_source_sha256_map(
+    project_root: Path,
+    output_dir: Path | None = None,
+) -> dict[str, str]:
     """Best-effort: from kb/manifest.sqlite, build {doc_id -> source_sha256}.
 
     H18 evidence_origins relies on this. If manifest is absent or unreadable,
@@ -59,7 +64,7 @@ def _load_source_sha256_map(project_root: Path) -> dict[str, str]:
     """
     import sqlite3
 
-    db = project_root / "kb" / "manifest.sqlite"
+    db = _kb_dir(project_root, output_dir) / "manifest.sqlite"
     if not db.is_file():
         return {}
     out: dict[str, str] = {}
@@ -136,12 +141,17 @@ def build_wiki(
     provider: str | LlmClient = "mock",
     seed: int = 0,
     dry_run: bool = False,
+    output_dir: Path | None = None,
 ) -> WikiResult:
-    """全量重建 wiki。如果 wiki/ 已存在，先清空旧文件（仅 *.md + index.json）。"""
+    """全量重建 wiki。如果 wiki/ 已存在，先清空旧文件（仅 *.md + index.json）。
+
+    ``output_dir`` (v0.5.0): 当提供时，kb/ 和 wiki/ 位于 ``output_dir``
+    下，而非 ``project_root`` 下。
+    """
     project_root = Path(project_root).resolve()
-    if not (project_root / "kb").is_dir():
+    if not _kb_dir(project_root, output_dir).is_dir():
         raise FileNotFoundError(
-            f"未在 {project_root} 找到 kb/ 目录；请先运行 `kb extract` 抽取。"
+            f"未在 {_kb_dir(project_root, output_dir)} 找到 kb/ 目录；请先运行 `kb extract` 抽取。"
         )
 
     llm: LlmClient
@@ -152,7 +162,7 @@ def build_wiki(
         llm = provider
         provider_name = getattr(provider, "name", "custom")
 
-    topics = discover_topics(project_root)
+    topics = discover_topics(project_root, output_dir=output_dir)
     entries = [build_topic_markdown(t, llm) for t in topics]
 
     if dry_run:
@@ -165,7 +175,7 @@ def build_wiki(
             unresolved_total=sum(len(e.unresolved_pins) for e in entries),
         )
 
-    wiki_dir = project_root / "wiki"
+    wiki_dir = _wiki_dir(project_root, output_dir)
     wiki_dir.mkdir(parents=True, exist_ok=True)
 
     # 清掉旧 .md（保留隐藏文件 / 用户手动文件）
@@ -179,7 +189,7 @@ def build_wiki(
         out_path = wiki_dir / f"{topic.slug}.md"
         _atomic_write_bytes(out_path, entry.markdown.encode("utf-8"))
 
-    sha_map = _load_source_sha256_map(project_root)
+    sha_map = _load_source_sha256_map(project_root, output_dir)
     _atomic_write_bytes(
         idx_path,
         _serialize_index(topics, entries, provider_name, seed, sha_map),
@@ -195,15 +205,20 @@ def build_wiki(
     )
 
 
-def verify_wiki(project_root: Path) -> list[str]:
+def verify_wiki(project_root: Path, output_dir: Path | None = None) -> list[str]:
     """重读 wiki/index.json，校验每个 evidence pin 都指向真实的 kb anchor。
 
     返回违规字符串列表（空 = 全部通过 = H14 满足）。
+
+    ``output_dir`` (v0.5.0): 当提供时，从 ``output_dir/wiki/`` 读取索引，
+    并以 ``output_dir/kb/`` 作为 anchor 解析根。
     """
     project_root = Path(project_root).resolve()
-    idx_path = project_root / "wiki" / "index.json"
+    wiki_root = _wiki_dir(project_root, output_dir)
+    kb_root = _kb_dir(project_root, output_dir)
+    idx_path = wiki_root / "index.json"
     if not idx_path.is_file():
-        return [f"wiki/index.json 不存在于 {project_root}"]
+        return [f"wiki/index.json 不存在于 {wiki_root}"]
 
     try:
         idx = json.loads(idx_path.read_text(encoding="utf-8"))
@@ -213,7 +228,7 @@ def verify_wiki(project_root: Path) -> list[str]:
     violations: list[str] = []
     for topic in idx.get("topics", []):
         slug = topic["slug"]
-        md_path = project_root / "wiki" / f"{slug}.md"
+        md_path = wiki_root / f"{slug}.md"
         if not md_path.is_file():
             violations.append(f"topic {slug}: wiki/{slug}.md 缺失")
             continue
@@ -222,7 +237,7 @@ def verify_wiki(project_root: Path) -> list[str]:
                 violations.append(f"topic {slug}: evidence pin [^ev-{n}] 越界")
         # 校验 evidence 的 anchor 是否真实存在 (H14) 且唯一 (H17)
         for ev in topic.get("evidence", []):
-            anchor_path = project_root / "kb" / ev["doc_id"] / "main.md"
+            anchor_path = kb_root / ev["doc_id"] / "main.md"
             if not anchor_path.is_file():
                 violations.append(
                     f"topic {slug}: 引用文件 kb/{ev['doc_id']}/main.md 不存在"
@@ -247,7 +262,7 @@ def verify_wiki(project_root: Path) -> list[str]:
         # If manifest is present, reconstruct expected origin set:
         expected_origins = {
             sha
-            for did, sha in _load_source_sha256_map(project_root).items()
+            for did, sha in _load_source_sha256_map(project_root, output_dir).items()
             if did in distinct_doc_ids
         }
         if expected_origins and not expected_origins.issubset(declared_origins):

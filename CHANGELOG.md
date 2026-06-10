@@ -5,6 +5,59 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本号遵循 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
+## [0.5.0] — 2026-06-10
+
+新增功能：把抽取产物写到任意目录，并修复 v0.4.1 之后在真实 22 文档批量抽取
+中暴露的 2 个 H9 / 1 个 H11 假阳性。
+
+### Added
+
+- **`--output-dir / -o` 参数**（对 5 个命令均生效：`extract` / `verify` /
+  `wiki build` / `wiki verify` / `manifest`）。
+  当提供该参数时，`kb/` 与 `wiki/` 会在 `<output-dir>` 下创建，而不是
+  源文件根目录下。源文件本身永远不会被改动（只读）。
+  - 例：`kb extract -o D:\out C:\spec` → `D:\out\kb\<file>/main.md`
+  - 中间目录会自动创建。
+  - 多源批处理时，`<output-dir>/kb/` 下子目录结构仍以 *源根目录* 的相对路径为准，
+    保留原始层级。
+- 新增 `kb_extract.layout.kb_dir()` 和 `wiki_dir()` 公共 helper。
+
+### Changed (hardness 语义微调，向后兼容)
+
+- **H9 改为基于覆盖的判定（不再是仅 leaves）**。原版规则
+  "leaves 必须两两不重叠且联起来正好等于 [1, total_pages]" 在真实数据上对
+  两类合法形状报假阳性：
+  1. **DOCX/XLSX 单页多 section**：DOCX 的 sections 都标 page=1..1，
+     旧规则把它们当作互相重叠。
+  2. **PDF 父节点 intro 内容**：父节点 page 1..N、第一个子节点从 page 3+
+     开始时，pages 1..2 属于父节点本身的 intro 内容，但旧 leaves-only
+     遍历漏算了父节点，触发 "gap before leaf"。
+  新规则：**所有非根节点（leaf + interior）的 `[page_start, page_end]`
+  联起来必须等于 `{1..total_pages}`**。范围合法性（page_start ≤ page_end，
+  在 1..total_pages 范围内）仍然严格检查；真实的"页面缺失"也仍会被捕获。
+  对单 leaf-per-page 的 PDF 行为完全不变。
+- **H11 docx.unknown_style 允许括号、点号、逗号**。Word 中 "Normal (Web)" /
+  "Heading 1 (Char)" 等带括号的 linked 样式名是合法的，原 regex
+  `[\w\- ]+` 拒绝了它们；现已放宽到 `[\w\- ().,]+`。
+
+### Notes
+
+- 既有 API 完全向后兼容：`output_dir=None`（默认）时行为与 0.4.x 一致。
+- wiki 的相对链接 `../kb/<doc>/main.md#<anchor>` 仍然正确解析 —— 因为 kb/ 和 wiki/
+  在 `<output-dir>` 下是兄弟目录。
+- 真实环境验证：用本 v0.5.0 把 22 份 Surface 硬件 spec（13 PDF + 5 DOCX +
+  4 XLSX，约 20MB）抽到独立 markdown 目录，22/22 ok、137 wiki topics、
+  193 evidence pins、0 violations。
+
+### Tests
+
+- 4 个新 CLI 测试覆盖 `--output-dir`（extract/verify/wiki build + 中间目录自动创建）。
+- 5 个新测试覆盖 H9 coverage-based 语义。
+- 7 个新测试覆盖 docx.unknown_style 括号 / 点号 / 逗号。
+- 既有 `test_h9_fails_on_overlap` 调整为反映新语义（覆盖完整就 OK）。
+- 既有 `test_wiki_build_records_history` 调整新 args 字段。
+- 总计 **254 passed**, ruff clean.
+
 ## [0.4.1] — 2026-06-10
 
 修 v0.4.0 在真实 PDF 上首次试用时暴露的 3 个 bug：
