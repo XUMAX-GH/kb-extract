@@ -126,8 +126,15 @@ def _build_pdf_tree_from_toc(
       1. Compute end_page per entry = next sibling-or-shallower entry's page - 1
       2. Emit markdown for each entry (heading + page-range body text)
       3. Walk entries with a stack to nest children under correct parents
+
+    v0.4.1: if the first TOC entry is on page > 1, prepend a synthetic
+    "Front matter" entry covering pages 1..(first_page-1) so H9 (page-range
+    gap closure) doesn't reject the document.
     """
     sorted_toc = [t for t in toc if t[2] >= 1]
+    # Prefix padding: front matter for pages before the first TOC entry.
+    if sorted_toc and sorted_toc[0][2] > 1:
+        sorted_toc = [[1, "Front matter", 1], *sorted_toc]
     # pymupdf already returns reading order; do NOT re-sort by page (would lose nesting).
     n = len(sorted_toc)
     end_pages: list[int] = []
@@ -216,8 +223,31 @@ def _build_pdf_tree_from_inferred(
     Uses the same nest-by-level routine. End-page for each heading is the page
     of the next heading at the same or shallower level minus 1, or n_pages
     for the last.
+
+    v0.4.1:
+      - if the first inferred heading is on page > 1 (e.g., image-only cover
+        page), prepend a synthetic "Front matter" heading covering pages
+        1..(first_page-1) so H9 doesn't reject the document.
+      - if multiple inferred headings land on the same page, coalesce them
+        to a single leaf (keep the first, which is the largest-font heading
+        by sort order); otherwise H9 sees overlapping page ranges.
     """
+    from .pdf_heading_infer import InferredHeading
+
     items = list(inferred.headings)
+    # Coalesce: at most one heading per page (input is sorted by (page, level, title);
+    # keeping the first preserves the largest-font heading on each page).
+    seen_pages: set[int] = set()
+    coalesced: list[InferredHeading] = []
+    for h in items:
+        if h.page in seen_pages:
+            continue
+        seen_pages.add(h.page)
+        coalesced.append(h)
+    items = coalesced
+    # Prefix padding: synthesize a front-matter heading at level 1 if needed.
+    if items and items[0].page > 1:
+        items.insert(0, InferredHeading(page=1, level=1, title="Front matter", font_size_q=0.0))
     # Compute end_page per item
     end_pages: list[int] = []
     for i, h in enumerate(items):

@@ -5,6 +5,39 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本号遵循 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
+## [0.4.1] — 2026-06-10
+
+修 v0.4.0 在真实 PDF 上首次试用时暴露的 3 个 bug：
+
+### Bug fixes
+
+- **PDF 适配器：image-only 封面页导致 H9 page-range gap**
+  当 PDF 的第 1 页是纯图（如扫描封面）、首个文本/TOC 标题落在第 2 页或更后时，
+  `_build_pdf_tree_from_toc` 和 `_build_pdf_tree_from_inferred` 都没有覆盖前缀
+  页，H9 会抛 `page-range gap before leaf 0001: pages 1..N missing`。
+  现在两条路径都会在 `items[0].page > 1` 时前置一个 `# Front matter` 节点覆盖
+  pages 1..(first-1)。
+- **PDF font-size 推断：同页多个 heading-sized 字段导致 H9 page-range overlap**
+  字号推断会把同一页上多段大字识别为多个独立标题，每个生成一个 leaf，全部声
+  明 page_start==page_end==P，H9 视作重叠违规。现在 `_build_pdf_tree_from_inferred`
+  按 (page, level) 排序后每页只保留第一个标题（即字号最大的）。
+- **H18 evidence_origins 在真实工程上一直是空数组**
+  `_load_source_sha256_map` 之前查询了不存在的 `manifest` 表（实际表名是
+  `sources`，见 `kb_extract.manifest`）。异常被 try/except 吞掉，返回 `{}`，
+  导致 `wiki/index.json` 的每个 topic 都显示 `evidence_origins: []`。
+  现在先尝试 `sources` 表，回退到 `manifest`（兼容 sketched-out 的旧数据库）。
+- **test_h18 fixture**：测试用例之前手写 `CREATE TABLE manifest`，现已对齐
+  真实 schema (`CREATE TABLE sources`)，避免假阳性。
+
+### 新增测试
+
+- `tests/test_pdf_front_matter_padding.py` (3 tests)
+  - inferred 路径前缀覆盖
+  - inferred 路径同页 heading 合并
+  - TOC 路径前缀覆盖
+
+总测试数：235 → 238 (+3)
+
 ## [0.4.0] — 2026-06-09
 
 合并 sp4（hardness 扩展）+ sp5（memory layer）到同一发行版。

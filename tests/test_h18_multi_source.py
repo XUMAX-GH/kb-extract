@@ -42,11 +42,11 @@ def _scaffold_with_manifest(root: Path) -> dict[str, str]:
         )
         sha_map[doc_id] = sha
 
-    # 造 manifest.sqlite
+    # 造 manifest.sqlite (real schema uses ``sources`` table — see kb_extract.manifest)
     db = kb / "manifest.sqlite"
     conn = sqlite3.connect(db)
     conn.executescript("""
-        CREATE TABLE manifest (
+        CREATE TABLE sources (
             key TEXT PRIMARY KEY,
             source_path TEXT NOT NULL,
             source_sha256 TEXT,
@@ -58,7 +58,7 @@ def _scaffold_with_manifest(root: Path) -> dict[str, str]:
     for doc_id, sha in sha_map.items():
         # source_path 的 stem 必须等于 doc_id
         conn.execute(
-            "INSERT INTO manifest(key, source_path, source_sha256, status) VALUES(?,?,?,?)",
+            "INSERT INTO sources(key, source_path, source_sha256, status) VALUES(?,?,?,?)",
             (f"/x/{doc_id}.pdf", f"{doc_id}.pdf", sha, "ok"),
         )
     conn.commit()

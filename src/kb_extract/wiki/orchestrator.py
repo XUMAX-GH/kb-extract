@@ -68,7 +68,12 @@ def _load_source_sha256_map(project_root: Path) -> dict[str, str]:
         try:
             # Conservative: schema may have evolved; only read the columns
             # we strictly need. If schema differs, just return what we got.
-            cur = conn.execute("SELECT source_path, source_sha256 FROM manifest")
+            # Real table is ``sources`` (per kb_extract.manifest schema). Try
+            # it first, then fall back to ``manifest`` for any legacy db.
+            try:
+                cur = conn.execute("SELECT source_path, source_sha256 FROM sources")
+            except sqlite3.OperationalError:
+                cur = conn.execute("SELECT source_path, source_sha256 FROM manifest")
             for src_path, sha in cur.fetchall():
                 if not src_path or not sha:
                     continue
