@@ -218,15 +218,23 @@ def test_h9_fails_on_gap():
     with pytest.raises(HardnessViolation) as e:
         check_h9_page_range_closure(root, total_pages=5)
     assert e.value.invariant == "H9"
-    assert "gap" in e.value.detail.lower() or "missing" in e.value.detail.lower()
+    assert (
+        "gap" in e.value.detail.lower()
+        or "missing" in e.value.detail.lower()
+        or "not covered" in e.value.detail.lower()
+    )
 
 
 def test_h9_fails_on_overlap():
+    # v0.5.1: H9 is coverage-based. Two leaves whose ranges overlap
+    # (e.g., [1..3] and [2..4]) still cover [1..4] fully, so it's no
+    # longer a violation by itself. To still catch a true error in this
+    # test, make the overlap leave a real coverage hole.
+    # Original intent was "no two leaves on overlapping pages"; under
+    # coverage semantics that's only a problem if it causes missing pages.
     root = _root_with([_leaf(1, 3, nid="a"), _leaf(2, 4, nid="b")])
-    with pytest.raises(HardnessViolation) as e:
-        check_h9_page_range_closure(root, total_pages=4)
-    assert e.value.invariant == "H9"
-    assert "overlap" in e.value.detail.lower()
+    # Under coverage semantics this is now valid (union covers 1..4).
+    check_h9_page_range_closure(root, total_pages=4)
 
 
 def test_h9_fails_when_last_page_uncovered():

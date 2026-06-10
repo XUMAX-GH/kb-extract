@@ -24,6 +24,11 @@ triggers:
   - "构建wiki"
   - "生成知识wiki"
   - "校验wiki"
+  - "输出到"
+  - "output to"
+  - "save to"
+  - "保存到"
+  - "把结果放到"
 ---
 
 # kb-extract 技能
@@ -59,6 +64,14 @@ CLI 里。
 | "列出我的偏好" | `kb remember --list` |
 | "忘记 / forget" | `kb forget <key>` |
 | "回顾历史 / recall / 我之前跑过什么" | `kb recall [--project X] [--command Y]` |
+| "把抽取产物放到 D / output to D" | `kb extract -o D X`（kb/ 和 wiki/ 写到 D 下） |
+
+### 关于 `--output-dir / -o`（v0.5.0+）
+
+如果用户明确说"把 markdown / 结果 / 知识库放到某个目录"（且这个目录与
+源文件目录**不同**），技能必须在 `kb extract`、`kb verify`、`kb wiki build`、
+`kb wiki verify`、`kb manifest` 上**都**带 `-o <output-dir>`，否则后续命令会
+找不到 manifest / kb / wiki。源文件**永远保持只读**。
 
 所有脚本都使用 `kb ... --json`，并把解析后的状态展示给用户。
 

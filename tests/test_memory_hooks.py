@@ -52,7 +52,12 @@ def test_wiki_build_records_history(isolated_home: Path, tmp_path: Path) -> None
         records = m.recall(limit=5)
     assert any(rec.command == "wiki build" for rec in records)
     rec = next(rec for rec in records if rec.command == "wiki build")
-    assert json.loads(rec.args_json) == {"provider": "mock", "seed": 0, "dry_run": False}
+    assert json.loads(rec.args_json) == {
+        "provider": "mock",
+        "seed": 0,
+        "dry_run": False,
+        "output_dir": None,
+    }
 
 
 def test_wiki_verify_records_history(isolated_home: Path, tmp_path: Path) -> None:

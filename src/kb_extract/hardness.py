@@ -138,42 +138,65 @@ def _count_titled_descendants(node: SectionNode) -> int:
     return n
 
 
+def _walk_non_root(node: SectionNode) -> Iterable[SectionNode]:
+    """Yield every node except the root (level 0 wrapper)."""
+    for c in node.children:
+        yield c
+        yield from _walk_non_root(c)
+
+
 def check_h9_page_range_closure(index: SectionNode, total_pages: int) -> None:
-    """Union of leaf [page_start, page_end] must equal [1, total_pages] exactly."""
-    leaves = sorted(_walk_leaves(index), key=lambda n: (n.page_start, n.page_end))
-    if not leaves:
+    """Every page in ``[1, total_pages]`` must be covered by at least one
+    SectionNode (interior or leaf).
+
+    v0.5.1 (coverage-based): the original "leaves-only, no-overlap"
+    formulation falsely rejected two legitimate real-world shapes:
+
+      * Single-page docs (DOCX/XLSX) where multiple sibling sections all
+        live on page 1 — the union still covers page 1.
+      * Hierarchical PDFs where a parent at page 1..N has its first child
+        starting at page 3+ — pages 1..2 are the parent's intro content,
+        covered by the parent's own range though not by any leaf.
+
+    The check is now: union of every non-root SectionNode's
+    ``[page_start, page_end]`` must equal ``{1, ..., total_pages}``
+    exactly. Per-node validity (page_start <= page_end, both within
+    bounds) is still enforced.
+    """
+    nodes = list(_walk_non_root(index))
+    if not nodes:
         raise HardnessViolation(
             invariant="H9",
-            detail=f"no leaf sections found; cannot cover {total_pages} pages",
+            detail=f"no sections found; cannot cover {total_pages} pages",
         )
-    # Check overlap
-    prev_end = 0
-    for leaf in leaves:
-        if leaf.page_start <= prev_end:
+    covered: set[int] = set()
+    for n in nodes:
+        if n.page_start < 1 or n.page_end < n.page_start:
             raise HardnessViolation(
                 invariant="H9",
                 detail=(
-                    f"page-range overlap at leaf {leaf.node_id}: "
-                    f"starts at {leaf.page_start}, previous leaf ended at {prev_end}"
+                    f"invalid page range on node {n.node_id}: "
+                    f"page_start={n.page_start}, page_end={n.page_end}"
                 ),
             )
-        if leaf.page_start > prev_end + 1:
+        if n.page_end > total_pages:
             raise HardnessViolation(
                 invariant="H9",
                 detail=(
-                    f"page-range gap before leaf {leaf.node_id}: "
-                    f"pages {prev_end + 1}..{leaf.page_start - 1} missing"
+                    f"node {n.node_id} page_end={n.page_end} exceeds "
+                    f"total_pages={total_pages}"
                 ),
             )
-        prev_end = leaf.page_end
-    # Check end-of-doc coverage
-    if prev_end != total_pages:
+        covered.update(range(n.page_start, n.page_end + 1))
+    expected = set(range(1, total_pages + 1))
+    missing = sorted(expected - covered)
+    if missing:
+        # Format compactly: show first 10 missing pages with ellipsis if more.
+        shown = ", ".join(str(p) for p in missing[:10])
+        more = f", ... ({len(missing)} pages total)" if len(missing) > 10 else ""
         raise HardnessViolation(
             invariant="H9",
-            detail=(
-                f"page-range does not reach end of doc: covered through {prev_end}, "
-                f"total_pages={total_pages}"
-            ),
+            detail=f"pages not covered by any section: [{shown}]{more}",
         )
 
 

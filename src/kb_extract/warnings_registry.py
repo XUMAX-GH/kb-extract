@@ -14,7 +14,9 @@ ALLOWED_WARNING_PATTERNS: tuple[str, ...] = (
     r"^pdf\.low_confidence_heading:p\d+$",
     r"^pdf\.font_decode_failed:p\d+$",
     # DOCX adapter
-    r"^docx\.unknown_style:[\w\- ]+$",
+    # Word style names can contain letters, digits, spaces, hyphens,
+    # parens (e.g. "Normal (Web)"), commas, dots (e.g. "ListNumber.5").
+    r"^docx\.unknown_style:[\w\- ().,]+$",
     r"^docx\.embedded_ole_skipped:[\w\-. ]+$",
     # XLSX adapter
     r"^xlsx\.formula_empty_cache:[^!]+![A-Z]+\d+$",
