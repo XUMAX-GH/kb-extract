@@ -5,6 +5,82 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本号遵循 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
+## [0.6.0] — 2026-06-15
+
+把 wiki 层从 *基于标题的占位 LLM* 升级为 *基于章节正文的真实 LLM*：新增
+`cached` provider（用于本地/CI 可复现地驱动任意 LLM 的回放），
+新增 `kb wiki dump-prompts` 子命令（导出提示词，便于手工或脚本喂给 LLM），
+并把 wiki 提示词从「仅标题」改为「标题 + 节段正文摘要」。
+
+### Added
+
+- **`cached` 真 LLM provider**（`src/kb_extract/wiki/providers/cached.py`）：
+  - `CachedLlmClient(responses_path=...)` 接受 `{prompt_hash: response}` 的
+    JSON，按 SHA-256 规范化 hash 匹配 prompt → 回复。命中即返回，未命中
+    可选择 **strict 抛 `CachedResponseMissing`**，或 **record 模式** 把
+    缺失 prompt 落盘并返回占位符（便于把 wiki build 跑完再补回复）。
+  - 公开 `prompt_hash(messages)` helper，供工具脚本使用。
+- **`kb wiki dump-prompts` 子命令**：把 discover_topics 之后会发给 LLM 的
+  *全部* 提示词写到一个 JSON 文件（按 prompt_hash 索引，含 topic_slug /
+  topic_title / evidence_count / messages）。供 *人工* 走 Claude / GPT-4 /
+  本地 LLM 后再写回 `responses.json`。
+- **`kb wiki build --provider cached --responses-file <path>`**：从
+  responses.json 读回复驱动 wiki 生成；可选 `--record-missing` 在 cache miss
+  时记录而非中断。
+- **`--min-evidence N` 与 `--skip-numeric-titles`**（`wiki build` /
+  `wiki dump-prompts` 通用）：跳过 evidence 数过少 / 标题全是数字的"噪声"
+  topic（在 137-topic 真实数据上，把生成数从 137 → 23，去掉了 77 个仅含
+  数字标题、1 evidence 的占位簇）。
+- **章节正文抽取 helper**（`src/kb_extract/wiki/sections.py`）：
+  `read_section_body(kb_root, doc_id, anchor, *, max_chars=1500)` —— 从
+  `kb/<doc_id>/main.md` 中按 `<a id="..."></a>` 锚点定位到下一个
+  `<a id="sec-NNNN"></a>` 之间的正文，截断 + 加省略号。供 writer 注入。
+- **新增 23 个测试**（4 个测试文件）：
+  - `test_section_body.py` × 7
+  - `test_writer_body_aware.py` × 4
+  - `test_topics_filters.py` × 5
+  - `test_cached_provider.py` × 7
+
+### Changed
+
+- **wiki writer 现在向 LLM 注入 evidence 正文摘要**（每条 ≤ 1200 字符 + 省略号）
+  而不是只发标题。system message 改进为：(a) 中英语境自适应；(b) 明确硬件
+  spec 上下文；(c) 显式 "不准编造 / 必须按 `[^ev-N]` 引证"。
+- `wiki/topics.discover_topics()` 增加 `min_evidence` 与
+  `skip_numeric_titles` 形参，默认值保持 `1 / False`（向后兼容）。
+- `wiki/orchestrator.build_wiki()` 把 `kb_root` 透传给 `build_topic_markdown`，
+  以便 writer 注入 section body。
+- `wiki/providers/mock.get_provider()` 接受 `**kwargs`，新增分支
+  `name == "cached"` 直接构造 `CachedLlmClient`。
+
+### Verification
+
+在 Berry Creek 22-doc 真实数据集（13 PDF + 5 DOCX + 4 XLSX）上验证：
+
+- `kb wiki dump-prompts ... --min-evidence 2 --skip-numeric-titles` →
+  **23 个提示词**（172 KB），下降比例 23/137 ≈ 17%。
+- 用 *Claude Opus 4.7（GitHub Copilot CLI 当前模型）* 在 session 内
+  人工 / 半自动写 23 个中文 markdown 回复，落盘 `responses.json`。
+- `kb wiki build ... --provider cached --responses-file ...` →
+  **23 topics, 180 pins, 0 unresolved**。
+- `kb wiki verify ...` → **ok**（所有 `[^ev-N]` 引证均指向真实存在的锚点）。
+- 全套 277 + 23 = 300 测试通过；ruff clean。
+
+### Migration / Compatibility
+
+- 既有 `wiki build` 调用（不带新 flag）行为完全不变 —— `mock` provider 仍是默认。
+- `discover_topics()` 的新参数都有默认值，旧调用站点不需要改。
+- `responses.json` 文件是稳定的（key 是 messages 的规范化 SHA-256，
+  与时间 / 顺序无关），便于 Git 跟踪与 CI 复现。
+
+### Known Limitations
+
+- Windows 默认 cp1252 stdout 无法编码 `→` 等 Unicode 字符；在调用
+  `kb wiki dump-prompts` 前需设 `$env:PYTHONIOENCODING="utf-8"`。已记入
+  v0.6.1 待办（在 CLI entry 加 `sys.stdout.reconfigure(encoding="utf-8")`）。
+- `slide` topic（61 evidence）prompt 约 73 KB，对 8K-context LLM 会超长；
+  当前数据集下 Claude / GPT-4 family 均可处理。后续可加 `--max-evidence` 截断。
+
 ## [0.5.0] — 2026-06-10
 
 新增功能：把抽取产物写到任意目录，并修复 v0.4.1 之后在真实 22 文档批量抽取

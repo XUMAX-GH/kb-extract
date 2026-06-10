@@ -142,11 +142,16 @@ def build_wiki(
     seed: int = 0,
     dry_run: bool = False,
     output_dir: Path | None = None,
+    min_evidence: int = 1,
+    skip_numeric_titles: bool = False,
 ) -> WikiResult:
     """全量重建 wiki。如果 wiki/ 已存在，先清空旧文件（仅 *.md + index.json）。
 
     ``output_dir`` (v0.5.0): 当提供时，kb/ 和 wiki/ 位于 ``output_dir``
     下，而非 ``project_root`` 下。
+
+    ``min_evidence`` / ``skip_numeric_titles`` (v0.6.0): 转发给
+    ``discover_topics``。
     """
     project_root = Path(project_root).resolve()
     if not _kb_dir(project_root, output_dir).is_dir():
@@ -162,8 +167,14 @@ def build_wiki(
         llm = provider
         provider_name = getattr(provider, "name", "custom")
 
-    topics = discover_topics(project_root, output_dir=output_dir)
-    entries = [build_topic_markdown(t, llm) for t in topics]
+    topics = discover_topics(
+        project_root,
+        output_dir=output_dir,
+        min_evidence=min_evidence,
+        skip_numeric_titles=skip_numeric_titles,
+    )
+    kb_root = _kb_dir(project_root, output_dir)
+    entries = [build_topic_markdown(t, llm, kb_root=kb_root) for t in topics]
 
     if dry_run:
         return WikiResult(
