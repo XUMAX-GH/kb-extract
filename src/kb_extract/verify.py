@@ -7,6 +7,7 @@ import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .layout import kb_dir
 from .manifest import Manifest
 
 
@@ -21,8 +22,8 @@ def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _doc_dirs(project_root: Path) -> list[Path]:
-    kb = project_root / "kb"
+def _doc_dirs(project_root: Path, output_dir: Path | None = None) -> list[Path]:
+    kb = kb_dir(project_root, output_dir)
     if not kb.exists():
         return []
     # Only verify direct children: kb/<doc>/main.md. Deeper paths come from
@@ -39,14 +40,22 @@ def _doc_dirs(project_root: Path) -> list[Path]:
     return out
 
 
-def verify_project(project_root: Path, *, fail_fast: bool = False) -> VerifyReport:
+def verify_project(
+    project_root: Path,
+    *,
+    fail_fast: bool = False,
+    output_dir: Path | None = None,
+) -> VerifyReport:
     """Re-run filesystem-level checks against artifacts on disk.
 
     Catches unauthorized edits to main.md (by re-hashing and comparing with
     manifest), plus structural integrity (assets present, hashes match).
+
+    ``output_dir`` (v0.5.0): when provided, read manifest + artifacts from
+    ``output_dir/kb/`` instead of ``project_root/kb/``.
     """
     report = VerifyReport()
-    manifest_path = project_root / "kb" / "manifest.sqlite"
+    manifest_path = kb_dir(project_root, output_dir) / "manifest.sqlite"
     if not manifest_path.exists():
         report.ok = False
         report.violations.append(f"no manifest at {manifest_path}")
@@ -59,7 +68,7 @@ def verify_project(project_root: Path, *, fail_fast: bool = False) -> VerifyRepo
     finally:
         m.close()
 
-    for main_md in _doc_dirs(project_root):
+    for main_md in _doc_dirs(project_root, output_dir):
         report.files_checked += 1
         doc_dir = main_md.parent
         meta_path = doc_dir / "meta.json"
@@ -88,9 +97,14 @@ def verify_project(project_root: Path, *, fail_fast: bool = False) -> VerifyRepo
         # For v1 simplicity: also recompute composite from on-disk artifacts.
         composite = _recompute_composite_sha(doc_dir)
         if row.output_sha256 and composite != row.output_sha256:
+            kb_root = kb_dir(project_root, output_dir)
+            try:
+                rel_label = doc_dir.relative_to(kb_root).as_posix()
+            except ValueError:
+                rel_label = doc_dir.name
             report.ok = False
             report.violations.append(
-                f"{doc_dir.relative_to(project_root).as_posix()}/main.md: "
+                f"{rel_label}/main.md: "
                 f"content hash mismatch (manifest={row.output_sha256[:12]}, "
                 f"actual={composite[:12]})"
             )

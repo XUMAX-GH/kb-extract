@@ -17,6 +17,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..layout import kb_dir as _kb_dir
+
 # 极简中英停用词（够用即可，避免引入依赖）
 _STOPWORDS = frozenset(
     {
@@ -96,17 +98,20 @@ def discover_topics(
     project_root: Path,
     *,
     jaccard_threshold: float = 0.85,
+    output_dir: Path | None = None,
 ) -> list[Topic]:
     """聚类 evidence；返回 slug 排序后的 Topic 列表。
 
     `jaccard_threshold` 是 single-linkage 的合并阈值（距离 ≤ 阈值则合并）。
+    `output_dir` (v0.5.0): 当提供时，从 ``output_dir/kb/`` 而非
+    ``project_root/kb/`` 读取索引。
     """
-    kb_dir = project_root / "kb"
-    if not kb_dir.is_dir():
+    kb_root = _kb_dir(project_root, output_dir)
+    if not kb_root.is_dir():
         return []
 
     all_evidence: list[tuple[EvidenceRef, frozenset[str]]] = []
-    for doc_dir in sorted(p for p in kb_dir.iterdir() if p.is_dir()):
+    for doc_dir in sorted(p for p in kb_root.iterdir() if p.is_dir()):
         index_file = doc_dir / "index.json"
         if not index_file.is_file():
             continue

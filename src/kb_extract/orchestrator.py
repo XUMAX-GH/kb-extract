@@ -12,7 +12,7 @@ from .contracts import ExtractionResult
 from .discovery import discover_sources
 from .errors import HardnessViolation
 from .hardness import assert_invariants
-from .layout import find_project_root, target_dir
+from .layout import find_project_root, kb_dir, target_dir
 from .manifest import Manifest
 from .serialization import (
     serialize_index_json,
@@ -70,9 +70,16 @@ def run(
     force: bool = False,
     dry_run: bool = False,
     only_exts: tuple[str, ...] | None = None,
+    output_dir: Path | None = None,
     _nest_depth: int = 0,
 ) -> RunReport:
-    """Top-level extraction over a project root or file. See spec §5.1."""
+    """Top-level extraction over a project root or file. See spec §5.1.
+
+    ``output_dir`` (v0.5.0): when provided, kb/ is created at
+    ``output_dir/kb/`` instead of ``project_root/kb/``. The per-source path
+    structure under ``kb/`` is still computed from the source's relative
+    location within ``project_root``.
+    """
     if registry is None:
         registry = get_default_registry()
 
@@ -89,7 +96,7 @@ def run(
     if only_exts:
         sources = [s for s in sources if s.suffix.lower() in {e.lower() for e in only_exts}]
 
-    manifest_path = project_root / "kb" / "manifest.sqlite"
+    manifest_path = kb_dir(project_root, output_dir) / "manifest.sqlite"
     if not dry_run:
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
     manifest = Manifest(manifest_path) if not dry_run else None
@@ -114,7 +121,7 @@ def run(
                 report.unchanged_count += 1
                 continue
 
-            out_dir = target_dir(project_root, src)
+            out_dir = target_dir(project_root, src, output_dir)
             out_dir_tmp = out_dir.with_suffix(out_dir.suffix + ".tmp")
             if out_dir_tmp.exists():
                 shutil.rmtree(out_dir_tmp)

@@ -20,7 +20,7 @@ import click
 
 from . import __version__
 from .adapters.base import get_default_registry
-from .layout import find_project_root
+from .layout import find_project_root, kb_dir
 from .manifest import Manifest
 from .orchestrator import run as orch_run
 from .verify import verify_project
@@ -62,6 +62,12 @@ def main() -> None:
 @click.option("--json", "as_json", is_flag=True, help="在标准输出打印 JSON 报告。")
 @click.option("--only", "only", multiple=True, help="只处理列出的扩展名（例如 --only .pdf）。")
 @click.option("--adapter", default=None, help="（v1 暂未使用）强制指定适配器。")
+@click.option(
+    "--output-dir", "-o", "output_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="将 kb/ 写入此目录（而不是源所在目录）。目录不存在会自动创建。",
+)
 def extract(
     path: Path,
     force: bool,
@@ -69,14 +75,19 @@ def extract(
     as_json: bool,
     only: tuple[str, ...],
     adapter: str | None,
+    output_dir: Path | None,
 ) -> None:
     """抽取 PATH 下的所有文档。"""
     only_exts = tuple(only) if only else None
+    if output_dir is not None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_dir = output_dir.resolve()
     report = orch_run(
         path,
         force=force,
         dry_run=dry_run,
         only_exts=only_exts,
+        output_dir=output_dir,
     )
     if as_json:
         d = {
@@ -88,6 +99,7 @@ def extract(
             "violations": report.violations,
             "sources_processed": len(report.sources_processed),
             "overall_status": report.overall_status,
+            "output_dir": str(output_dir) if output_dir else None,
         }
         click.echo(json.dumps(d, indent=2, sort_keys=True))
     else:
@@ -101,7 +113,8 @@ def extract(
     exit_code = 1 if report.failed_count or report.violations else 0
     _record_history(
         path, "extract",
-        {"force": force, "dry_run": dry_run, "only": list(only)},
+        {"force": force, "dry_run": dry_run, "only": list(only),
+         "output_dir": str(output_dir) if output_dir else None},
         exit_code,
         f"ok={report.ok_count} failed={report.failed_count}",
     )
@@ -112,9 +125,19 @@ def extract(
 @click.argument("path", type=click.Path(exists=True, path_type=Path))
 @click.option("--json", "as_json", is_flag=True, help="以 JSON 输出。")
 @click.option("--fail-fast", is_flag=True, help="发现第一条违规后立刻停止。")
-def verify(path: Path, as_json: bool, fail_fast: bool) -> None:
+@click.option(
+    "--output-dir", "-o", "output_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="从此目录读取 kb/（与 extract 用相同参数）。",
+)
+def verify(
+    path: Path, as_json: bool, fail_fast: bool, output_dir: Path | None
+) -> None:
     """基于 manifest 重新校验磁盘产物。检测到违规时返回退出码 3。"""
-    report = verify_project(path, fail_fast=fail_fast)
+    if output_dir is not None:
+        output_dir = output_dir.resolve()
+    report = verify_project(path, fail_fast=fail_fast, output_dir=output_dir)
     if as_json:
         click.echo(json.dumps({
             "ok": report.ok,
@@ -131,7 +154,8 @@ def verify(path: Path, as_json: bool, fail_fast: bool) -> None:
     exit_code = 0 if report.ok else 3
     _record_history(
         path, "verify",
-        {"fail_fast": fail_fast},
+        {"fail_fast": fail_fast,
+         "output_dir": str(output_dir) if output_dir else None},
         exit_code,
         f"files_checked={report.files_checked} violations={len(report.violations)}",
     )
@@ -171,11 +195,30 @@ def wiki_group() -> None:
 @click.option("--seed", type=int, default=0, show_default=True, help="provider 的随机种子（H15）。")
 @click.option("--dry-run", is_flag=True, help="只 discover topics + 生成内容，不写盘。")
 @click.option("--json", "as_json", is_flag=True, help="JSON 输出。")
-def wiki_build(path: Path, provider: str, seed: int, dry_run: bool, as_json: bool) -> None:
+@click.option(
+    "--output-dir", "-o", "output_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="从此目录读取 kb/，把 wiki/ 写入这里。",
+)
+def wiki_build(
+    path: Path,
+    provider: str,
+    seed: int,
+    dry_run: bool,
+    as_json: bool,
+    output_dir: Path | None,
+) -> None:
     """基于 PATH/kb/ 重新构建 wiki/。"""
     from .wiki import build_wiki
 
-    result = build_wiki(path, provider=provider, seed=seed, dry_run=dry_run)
+    if output_dir is not None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_dir = output_dir.resolve()
+
+    result = build_wiki(
+        path, provider=provider, seed=seed, dry_run=dry_run, output_dir=output_dir
+    )
     if as_json:
         click.echo(json.dumps({
             "project_root": str(result.project_root),
@@ -186,6 +229,7 @@ def wiki_build(path: Path, provider: str, seed: int, dry_run: bool, as_json: boo
             "unresolved_total": result.unresolved_total,
             "ok": result.ok,
             "dry_run": dry_run,
+            "output_dir": str(output_dir) if output_dir else None,
         }, indent=2, sort_keys=True))
     else:
         click.echo(
@@ -198,7 +242,8 @@ def wiki_build(path: Path, provider: str, seed: int, dry_run: bool, as_json: boo
     exit_code = 0 if result.ok else 1
     _record_history(
         path, "wiki build",
-        {"provider": provider, "seed": seed, "dry_run": dry_run},
+        {"provider": provider, "seed": seed, "dry_run": dry_run,
+         "output_dir": str(output_dir) if output_dir else None},
         exit_code,
         f"topics={len(result.topics)} unresolved={result.unresolved_total}",
     )
@@ -208,11 +253,19 @@ def wiki_build(path: Path, provider: str, seed: int, dry_run: bool, as_json: boo
 @wiki_group.command(name="verify")
 @click.argument("path", type=click.Path(exists=True, path_type=Path))
 @click.option("--json", "as_json", is_flag=True, help="JSON 输出。")
-def wiki_verify(path: Path, as_json: bool) -> None:
+@click.option(
+    "--output-dir", "-o", "output_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="从此目录读取 wiki/ 与 kb/。",
+)
+def wiki_verify(path: Path, as_json: bool, output_dir: Path | None) -> None:
     """校验 wiki/ 下所有 evidence pin 都能解析到真实 kb anchor (H14)。"""
     from .wiki.orchestrator import verify_wiki
 
-    violations = verify_wiki(path)
+    if output_dir is not None:
+        output_dir = output_dir.resolve()
+    violations = verify_wiki(path, output_dir=output_dir)
     if as_json:
         click.echo(json.dumps({
             "ok": len(violations) == 0,
@@ -229,7 +282,7 @@ def wiki_verify(path: Path, as_json: bool) -> None:
     exit_code = 3 if violations else 0
     _record_history(
         path, "wiki verify",
-        {},
+        {"output_dir": str(output_dir) if output_dir else None},
         exit_code,
         f"violations={len(violations)}",
     )
@@ -318,10 +371,20 @@ def recall_cmd(project: str | None, command: str | None, limit: int, as_json: bo
               help="按状态过滤记录。")
 @click.option("--format", "fmt", type=click.Choice(["table", "json", "csv"]),
               default="table", help="输出格式（默认 table）。")
-def manifest_cmd(path: Path, status: str | None, fmt: str) -> None:
+@click.option(
+    "--output-dir", "-o", "output_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="从此目录读取 kb/manifest.sqlite。",
+)
+def manifest_cmd(
+    path: Path, status: str | None, fmt: str, output_dir: Path | None
+) -> None:
     """展示项目的 manifest 记录。"""
     project_root = find_project_root(path)
-    db = project_root / "kb" / "manifest.sqlite"
+    if output_dir is not None:
+        output_dir = output_dir.resolve()
+    db = kb_dir(project_root, output_dir) / "manifest.sqlite"
     if not db.exists():
         click.echo(f"no manifest at {db}", err=True)
         sys.exit(1)

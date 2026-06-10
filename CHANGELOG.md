@@ -5,6 +5,29 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本号遵循 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
+## [0.5.0] — 2026-06-10
+
+新增功能：把抽取产物写到任意目录，而不再固定生成在源文件目录下。
+
+### Added
+
+- **`--output-dir / -o` 参数**（对 5 个命令均生效：`extract` / `verify` /
+  `wiki build` / `wiki verify` / `manifest`）。
+  当提供该参数时，`kb/` 与 `wiki/` 会在 `<output-dir>` 下创建，而不是
+  源文件根目录下。源文件本身永远不会被改动（只读）。
+  - 例：`kb extract -o D:\out C:\spec` → `D:\out\kb\<file>/main.md`
+  - 中间目录会自动创建。
+  - 多源批处理时，`<output-dir>/kb/` 下子目录结构仍以 *源根目录* 的相对路径为准，
+    保留原始层级。
+- 新增 `kb_extract.layout.kb_dir()` 和 `wiki_dir()` 公共 helper。
+- 新增 4 个 CLI 测试覆盖 `--output-dir` 的端到端行为（extract/verify/wiki + 中间目录自动创建）。
+
+### Notes
+
+- 既有 API 完全向后兼容：`output_dir=None`（默认）时行为与 0.4.x 一致。
+- wiki 的相对链接 `../kb/<doc>/main.md#<anchor>` 仍然正确解析 —— 因为 kb/ 和 wiki/
+  在 `<output-dir>` 下是兄弟目录。
+
 ## [0.4.1] — 2026-06-10
 
 修 v0.4.0 在真实 PDF 上首次试用时暴露的 3 个 bug：
