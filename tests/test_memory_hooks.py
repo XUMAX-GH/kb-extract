@@ -57,6 +57,8 @@ def test_wiki_build_records_history(isolated_home: Path, tmp_path: Path) -> None
         "seed": 0,
         "dry_run": False,
         "output_dir": None,
+        "min_evidence": 1,
+        "skip_numeric_titles": False,
     }
 
 

@@ -4,18 +4,68 @@
 1. 解析 `[^ev-N]` pin
 2. 在文末追加 `[^ev-N]: kb/<doc>/main.md#<anchor>` 脚注定义
 3. 校验所有 pin 都解析得到（H14）
+
+v0.6.0: ``build_topic_markdown`` 接受可选的 ``kb_root``，若提供则会从对应
+section 读出正文摘录并喂给 LLM —— 真实 LLM 才能据此写出有信息量的内容。
 """
 
 from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from pathlib import Path
 
 from .providers.base import LlmClient, Message
+from .sections import read_section_body
 from .topics import Topic
 
 _PIN_RE = re.compile(r"\[\^ev-(\d+)\]")
-_MAX_EVIDENCE_CHARS = 1500  # 每段截断，避免给 mock 灌过多文本
+# Per-section body excerpt cap. Combined with up to N evidence sections this
+# bounds total prompt size to ~(N * 1200) chars + scaffolding.
+_PER_BODY_CHARS = 1200
+# Title-only fallback cap (legacy behavior when kb_root not supplied).
+_MAX_EVIDENCE_CHARS = 1500
+
+
+def _build_prompt(topic: Topic, kb_root: Path | None = None) -> list[Message]:
+    sys_msg: Message = {
+        "role": "system",
+        "content": (
+            "You are summarising technical hardware/firmware specification "
+            "documentation. Every factual claim MUST be followed by a citation "
+            "of the form [^ev-N] where N indexes the numbered evidence sections "
+            "supplied below. Do NOT invent facts; if the evidence is thin, say "
+            "so explicitly. Prefer concrete numbers, tolerances, standards "
+            "(UL/IEC/MIL/etc), and named components over generalities. Reply in "
+            "the same language as the topic title (Chinese title → Chinese body, "
+            "English title → English body). Use markdown headings and short "
+            "paragraphs. Target 200-400 words. Do NOT add a top-level # heading "
+            "(the wrapper supplies one)."
+        ),
+    }
+    lines = [
+        f"Topic: {topic.title}",
+        "",
+        "Evidence sections (numbered):",
+    ]
+    for i, ev in enumerate(topic.evidence, start=1):
+        page = ""
+        if ev.page_start is not None:
+            page = f" (p.{ev.page_start})"
+        title = ev.section_title[:_MAX_EVIDENCE_CHARS]
+        lines.append("")
+        lines.append(f"[{i}] {title}{page}  —  source: {ev.doc_id}")
+        if kb_root is not None:
+            body = read_section_body(kb_root, ev.doc_id, ev.anchor, max_chars=_PER_BODY_CHARS)
+            if body:
+                lines.append("")
+                lines.append("```")
+                lines.append(body)
+                lines.append("```")
+    lines.append("")
+    lines.append("Write a 200-400 word wiki entry. Use markdown.")
+    user_msg: Message = {"role": "user", "content": "\n".join(lines)}
+    return [sys_msg, user_msg]
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,34 +76,20 @@ class WikiEntry:
     unresolved_pins: tuple[int, ...]
 
 
-def _build_prompt(topic: Topic) -> list[Message]:
-    sys_msg: Message = {
-        "role": "system",
-        "content": (
-            "You are summarising technical documentation. Every factual claim MUST "
-            "be followed by [^ev-N] where N indexes the evidence sections supplied "
-            "below. Do not invent claims. Reply in the same language as the topic title."
-        ),
-    }
-    lines = [f"Topic: {topic.title}", "", "Evidence sections (numbered):"]
-    for i, ev in enumerate(topic.evidence, start=1):
-        snippet = ev.section_title[:_MAX_EVIDENCE_CHARS]
-        page = ""
-        if ev.page_start is not None:
-            page = f" (p.{ev.page_start})"
-        lines.append(f"[{i}] {snippet}{page}")
-    lines.append("")
-    lines.append("Write a 200-400 word wiki entry. Use markdown.")
-    user_msg: Message = {"role": "user", "content": "\n".join(lines)}
-    return [sys_msg, user_msg]
+def build_topic_markdown(
+    topic: Topic,
+    llm: LlmClient,
+    *,
+    kb_root: Path | None = None,
+) -> WikiEntry:
+    """生成单个 topic 的完整 markdown（含 frontmatter + body + footnotes）。
 
-
-def build_topic_markdown(topic: Topic, llm: LlmClient) -> WikiEntry:
-    """生成单个 topic 的完整 markdown（含 frontmatter + body + footnotes）。"""
+    ``kb_root`` 可选；提供时 prompt 会包含每个 evidence section 的正文摘录。
+    """
     if not topic.evidence:
         raise ValueError(f"topic {topic.slug} has no evidence")
 
-    messages = _build_prompt(topic)
+    messages = _build_prompt(topic, kb_root=kb_root)
     body = llm.chat(messages)
 
     # 收集 pin

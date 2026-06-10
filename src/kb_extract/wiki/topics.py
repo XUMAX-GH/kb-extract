@@ -94,17 +94,38 @@ def _slugify(text: str, fallback: str) -> str:
     return s or fallback
 
 
+_NUMERIC_TITLE_RE = re.compile(r"^[\d.\-\s]+$")
+
+
+def _is_numeric_title(title: str) -> bool:
+    """True when ``title`` is just digits / dots / dashes / whitespace.
+
+    e.g. "1", "1.4", "1-4", "2.3.1", "  1.2  " — these come from spec
+    sections numbered without a descriptive heading and contribute no
+    semantic value to a wiki topic.
+    """
+    if not title.strip():
+        return True
+    return bool(_NUMERIC_TITLE_RE.match(title))
+
+
 def discover_topics(
     project_root: Path,
     *,
     jaccard_threshold: float = 0.85,
     output_dir: Path | None = None,
+    min_evidence: int = 1,
+    skip_numeric_titles: bool = False,
 ) -> list[Topic]:
     """聚类 evidence；返回 slug 排序后的 Topic 列表。
 
     `jaccard_threshold` 是 single-linkage 的合并阈值（距离 ≤ 阈值则合并）。
     `output_dir` (v0.5.0): 当提供时，从 ``output_dir/kb/`` 而非
     ``project_root/kb/`` 读取索引。
+    `min_evidence` (v0.6.0): 只保留 evidence 数 ≥ 该值的 topic（默认 1，
+    兼容旧行为）。设为 2 可去掉单 evidence 的孤儿 topic。
+    `skip_numeric_titles` (v0.6.0): 当为 True 时，丢弃标题仅由数字 / 点号 /
+    短横线组成的 topic（如 "1"、"1.4"、"2.3.1"）。
     """
     kb_root = _kb_dir(project_root, output_dir)
     if not kb_root.is_dir():
@@ -185,6 +206,17 @@ def discover_topics(
             deduped.append(
                 Topic(slug=f"{t.slug}-{seen[t.slug]}", title=t.title, evidence=t.evidence)
             )
+
+    # v0.6.0 filters
+    if min_evidence > 1 or skip_numeric_titles:
+        filtered: list[Topic] = []
+        for t in deduped:
+            if len(t.evidence) < min_evidence:
+                continue
+            if skip_numeric_titles and _is_numeric_title(t.title):
+                continue
+            filtered.append(t)
+        deduped = filtered
 
     deduped.sort(key=lambda t: t.slug)
     return deduped
