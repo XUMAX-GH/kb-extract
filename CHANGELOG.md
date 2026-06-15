@@ -5,6 +5,80 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本号遵循 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
+## [0.9.0] — 2026-06-15
+
+**分层 Wiki 知识库（Taxonomy v2）**：把 wiki 的扁平 1 层分类升级为 4 层
+树（system → subsystem → part → function），完整反映 PRD + PES 文档的
+真实组织结构。生成、路由、写盘、orchestrator、CLI 全部贯通，
+完全向后兼容（v1 公共 API 全部保留，v1 taxonomy.json 自动迁移）。
+
+### Added
+
+- **数据模型**（`wiki/taxonomy.py`）：
+  - `CategoryNode`：frozen+slots dataclass，递归 children；
+    携带 `layer / prd_headings / pes_headings / linked_specs / keywords`。
+  - `TaxonomyConfigV2`：v2 配置根，新增 `source_pes_glob`。
+- **Schema 迁移**（透明、幂等）：
+  - `migrate_v1_to_v2(raw_dict)`：v1 dict → v2 dict；v1 类目统一升为
+    `layer="system"`、`source_pes_glob=None`、children 为空。
+  - `load_taxonomy_v2(path)` / `save_taxonomy_v2(cfg, path)`：原子写入、
+    确定性 JSON（每层按 slug 排序）。
+- **自动生成**（`generate_taxonomy_v2`）：
+  - PRD H1 → system、H2 → subsystem。
+  - 通过 `--pes-glob` 启用 PES 挂载：每个匹配的 PES H1 → part、
+    H2 → function。
+  - 双策略识别 PES 归属：先尝试 subsystem `linked_specs` 精确匹配；
+    退化到 system 级 `linked_specs` + PES 文件名 token 与 subsystem
+    标题的交集匹配（适配实际 PRD 把 Reference Documents 表格放在
+    H1 章节下的常见排版）。
+  - 跨 PES 同名零件**不合并**（不同 subsystem 下的同名 part 独立）。
+- **路由引擎**（`route_evidence_v2`）：
+  - 返回 `tuple[str, ...]` 路径，最长前缀匹配。
+  - 优先级：PRD anchor map > PES anchor map > subsystem linked_specs >
+    keyword fallback (top-level system) > `('_uncategorized',)`。
+  - 辅助函数 `build_prd_section_map_v2` / `build_pes_section_map_v2`。
+- **Orchestrator v2**（`build_wiki_v2`）：
+  - 递归生成 `_index.md`：根 `wiki/_index.md` 列系统，每个 system /
+    subsystem / part 节点的目录都有自己的 `_index.md`，列子分类 +
+    该节点直接挂载的 topic 文章。
+  - 终端 topic 写到对应深度路径，例如
+    `wiki/audio/speaker/tweeter/frequency-response/<topic>.md`。
+- **Writer 路径泛化**（`build_topic_markdown`）：
+  - 新增 `category_path: tuple[str, ...]` 参数，footnote URL 前缀
+    自动按深度计算为 `"../" * depth + "../kb"`，支持 1..4 层。
+  - 向后兼容 `category_slug`（深度 1）。
+- **CLI**：
+  - `kb wiki taxonomy generate` 新增 `--pes-glob` 选项；传则生成 v2，
+    不传保持 v0.7 v1 行为。
+  - `kb wiki build --taxonomy` 自动识别 v1 / v2 schema 并分派到对应
+    orchestrator。
+- **H21 v2 不变量**（`validate_taxonomy_v2`）：
+  - schema version 必须为 2
+  - slug 非空、同级 slug 唯一
+  - layer 必须 ∈ `{system, subsystem, part, function}`
+  - 子节点 layer 必须正好比父深一层（不允许跳跃 / 倒置）
+  - 树深度上限 4
+
+### Changed
+
+- `wiki/index.json` 在 v2 模式下新增 `taxonomy_version=2`、
+  `source_pes_glob` 字段；每个 topic 含 `category_path: [...]` 数组。
+  legacy `category` 字段仍写入（`"/".join(path)`），供 `verify_wiki`
+  和旧版工具消费。
+- README 全面刷新为中文 v0.9.0 版本，新增"分层 Wiki 知识库"章节，
+  含 4 步快速上手与路由优先级说明。
+
+### Tests
+
+- 新增 50 个 v2 测试（8 CategoryNode + 9 migrator + 8 H21 + 9 generate +
+  9 router + 7 writer + 6 e2e）。完整套件 446 通过。
+
+### 设计文档
+
+- `docs/superpowers/specs/2026-06-15-taxonomy-v2-design.md`（376 行）
+
+---
+
 ## [0.8.0] — 2026-06-15
 
 **MinerU 启发的 Parser v2**：四个核心适配器（docx / pptx / xlsx / pdf）

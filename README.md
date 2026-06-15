@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml/badge.svg)](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.9.0-blue.svg)](CHANGELOG.md)
 
 ---
 
@@ -69,8 +69,8 @@ cd kb-extract
 完成后运行：
 
 ```bash
-kb --version          # 0.1.0
-kb adapters           # 列出 5 个内置适配器
+kb --version          # 0.9.0
+kb adapters           # 列出 5 个内置适配器（4 个 v2 + 1 个 image）
 ```
 
 ### 卸载
@@ -213,6 +213,126 @@ kb wiki verify ./MyProject
 KB_EXTRACT_LLM_PROVIDER=openai kb wiki build ./MyProject
 # v0.3 仅实现了 mock；openai/anthropic/ollama 留了 protocol 占位
 ```
+
+---
+
+## PRD 驱动的 Wiki 分类（v0.7.0）
+
+之前的 wiki 把所有事实塞进 `_uncategorized`，不利于按主题浏览。
+从 v0.7.0 起，可以**从 PRD 文档结构自动生成 taxonomy 配置**，
+然后按 PRD 章节把事实分流到不同的 wiki 文件。
+
+```bash
+# 1) 先做一次 kb extract，让 PRD 进入 kb/
+kb extract ./MyProject
+
+# 2) 从 PRD 一级 / 二级标题自动生成 wiki/taxonomy.json
+kb wiki taxonomy generate ./MyProject \
+    --prd-doc-id <PRD 文档目录名> \
+    -o ./MyProject
+
+# 3) 重新构建 wiki，所有 evidence 会按 4 层优先级被路由：
+#    显式 doc_id 命中 > PES 文档号引用 > 章节标题映射 > 关键词
+kb wiki build ./MyProject --provider mock --seed 0
+```
+
+新增不变量：
+
+- **H21**：`taxonomy.json` 必须满足 schema 完整性（version、source_prd、
+  唯一 slug、空 keywords 等等都由 `validate_taxonomy` 强制）。
+
+---
+
+## Parser v2（v0.8.0）
+
+v0.8.0 把 4 个核心解析器（PDF / DOCX / PPTX / XLSX）整体重写为 **v2 实现**，
+统一引入了：
+
+- **真实图片落盘**：所有内联图片以 `bytes → kb/<doc>/assets/img-<sha8>.<ext>`
+  形式确定性命名（基于内容 SHA-256 前 8 位），Markdown 中以
+  `![alt](../assets/img-xxxxxxxx.png)` 引用，跨平台 byte-identical。
+- **更稳健的章节切分**：合并样式 + 字号启发，避免漏掉无样式但视觉上明显
+  的标题；表格转 GFM，列对齐与 NBSP 行为规范化。
+- **图像完整性 H22**：任何 adapter 写入 `assets/` 必须经过 `save_image()`
+  辅助函数（统一计算 hash、原子写入、防止内容漂移）。AST 静态检查
+  禁止 adapters 层绕过 `save_image` 直接 `Path.write_bytes`。
+
+升级是**完全兼容**的：旧产物用 `kb verify` 校验仍然过得了，但建议跑
+`kb extract --force` 重新生成以享受图片确定性命名带来的可追溯性。
+
+---
+
+## 分层 Wiki 知识库（v0.9.0）
+
+v0.9.0 把 wiki 的扁平分类升级为按 **PRD + PES 真实层级**的 4 层
+分类树（已发布）：
+
+```
+system           ← PRD 一级标题 (e.g. Audio System)
+ └─ subsystem    ← PRD 二级标题 (e.g. Speaker)
+     └─ part     ← PES 文档下的组件 (e.g. Tweeter)
+         └─ function ← PES 二级标题（如频响、SPL）
+```
+
+### 一键生成 + 构建
+
+```bash
+# 1) 抽取所有 PRD/PES 文档到 kb/
+kb extract ./MyProject
+
+# 2) 生成 v2 taxonomy（带 --pes-glob 即触发 v2；不带就退化为 v0.7 行为）
+kb wiki taxonomy generate ./MyProject \
+    --prd-doc "BC PRD" \
+    --pes-glob "M*"
+
+# 3) 构建分层 wiki：自动识别 v2 schema 并走 build_wiki_v2
+kb wiki build ./MyProject \
+    --taxonomy ./MyProject/wiki/taxonomy.json \
+    --provider mock --seed 0
+
+# 4) 校验所有 footnote 都能解析回 kb anchor
+kb wiki verify ./MyProject
+```
+
+### 输出布局
+
+```
+wiki/
+  _index.md                        ← 系统总览
+  audio/_index.md                  ← Audio 系统下的子系统列表
+  audio/speaker/_index.md          ← Speaker 子系统下的零件列表
+  audio/speaker/tweeter/_index.md  ← Tweeter 零件下的功能列表
+  audio/speaker/tweeter/frequency-response/<topic>.md
+  audio/microphone/<topic>.md
+  electrical/power/<topic>.md
+  taxonomy.json                    ← v2 配置（可读、可手改、可重跑）
+  index.json                       ← topic 元数据 + provider/seed
+```
+
+### 路由优先级（最长前缀匹配）
+
+```
+PRD anchor map  >  PES anchor map  >  subsystem linked_specs  >  keyword fallback  >  _uncategorized
+```
+
+deepest-matchable 优先：能匹配到 function 就不会停在 part；
+跨 PES 同名零件（e.g. Audio/Speaker/Tweeter vs Notification/Speaker/Tweeter）
+不会被合并。
+
+### 设计原则与不变量
+
+- v1 公共 API（`Category` / `TaxonomyConfig` / `load_taxonomy` / 
+  `save_taxonomy` / `generate_taxonomy` / `route_evidence`）保持不变；
+  v2 在 `taxonomy.py` 内并行新增 `CategoryNode` / `TaxonomyConfigV2` /
+  `generate_taxonomy_v2` / `route_evidence_v2` / `load_taxonomy_v2` /
+  `save_taxonomy_v2`。
+- `load_taxonomy_v2` 自动迁移 v1 → v2（v1 类目统一标记 `layer="system"`,
+  `source_pes_glob=None`）。
+- 所有层都按 slug 字典序排序后再序列化，输出 byte-identical（H8/H13）。
+- **H21 v2**: `layer ∈ {system, subsystem, part, function}`、树深度 ≤ 4、
+  父子层严格递降（不允许跳跃）、同级 slug 唯一。
+
+详细设计：`docs/superpowers/specs/2026-06-15-taxonomy-v2-design.md`
 
 ---
 

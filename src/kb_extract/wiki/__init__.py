@@ -14,21 +14,37 @@
 
 from __future__ import annotations
 
-from .orchestrator import WikiResult, build_wiki
+from .orchestrator import WikiResult, build_wiki, build_wiki_v2
 from .providers.base import LlmClient, Message
-from .taxonomy import Category, TaxonomyConfig, load_taxonomy, save_taxonomy
+from .taxonomy import (
+    Category,
+    CategoryNode,
+    TaxonomyConfig,
+    TaxonomyConfigV2,
+    generate_taxonomy_v2,
+    load_taxonomy,
+    load_taxonomy_v2,
+    save_taxonomy,
+    save_taxonomy_v2,
+)
 from .topics import EvidenceRef, Topic, discover_topics
 
 __all__ = [
     "Category",
+    "CategoryNode",
     "EvidenceRef",
     "LlmClient",
     "Message",
     "TaxonomyConfig",
+    "TaxonomyConfigV2",
     "Topic",
     "WikiResult",
     "build_wiki",
+    "build_wiki_v2",
     "discover_topics",
+    "generate_taxonomy_v2",
     "load_taxonomy",
+    "load_taxonomy_v2",
     "save_taxonomy",
+    "save_taxonomy_v2",
 ]

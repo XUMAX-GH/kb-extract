@@ -90,6 +90,7 @@ def build_topic_markdown(
     *,
     kb_root: Path | None = None,
     category_slug: str | None = None,
+    category_path: tuple[str, ...] | None = None,
     category_title: str | None = None,
 ) -> WikiEntry:
     """生成单个 topic 的完整 markdown（含 frontmatter + body + footnotes）。
@@ -97,6 +98,10 @@ def build_topic_markdown(
     ``kb_root`` 可选；提供时 prompt 会包含每个 evidence section 的正文摘录。
     ``category_slug``: when set, footnote URLs are one level deeper:
     ``../../kb/<doc>/main.md#anchor`` instead of ``../kb/<doc>/main.md#anchor``.
+    ``category_path`` (v0.9.0): tuple of slugs for hierarchical layouts (depth
+    1..4). When supplied, takes precedence over ``category_slug`` and
+    prepends ``"../" * len(path)`` to ``../kb`` so footnote URLs resolve
+    correctly from arbitrarily nested ``wiki/sys/sub/part/.../topic.md``.
     ``category_title``: when set, adds subsystem context to the LLM prompt.
     """
     if not topic.evidence:
@@ -110,7 +115,15 @@ def build_topic_markdown(
     ev_count = len(topic.evidence)
     unresolved = tuple(n for n in pin_numbers if n < 1 or n > ev_count)
 
-    kb_prefix = "../../kb" if category_slug else "../kb"
+    # Hierarchical path takes precedence; fall back to legacy 1-level
+    # ``category_slug``; otherwise flat layout.
+    if category_path is not None:
+        depth = len(category_path)
+    elif category_slug:
+        depth = 1
+    else:
+        depth = 0
+    kb_prefix = "../" * depth + "../kb"
 
     # 构造 footnote 定义（按出现顺序）
     footnote_lines: list[str] = []

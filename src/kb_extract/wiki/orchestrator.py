@@ -21,7 +21,15 @@ from ..layout import kb_dir as _kb_dir
 from ..layout import wiki_dir as _wiki_dir
 from .providers.base import LlmClient
 from .providers.mock import get_provider
-from .taxonomy import TaxonomyConfig, build_prd_section_map, route_evidence
+from .taxonomy import (
+    TaxonomyConfig,
+    TaxonomyConfigV2,
+    build_pes_section_map_v2,
+    build_prd_section_map,
+    build_prd_section_map_v2,
+    route_evidence,
+    route_evidence_v2,
+)
 from .topics import Topic, discover_topics
 from .writer import WikiEntry, build_topic_markdown
 
@@ -556,3 +564,375 @@ def _serialize_taxonomy_index(
     return (json.dumps(obj, ensure_ascii=False, sort_keys=True, indent=2) + "\n").encode(
         "utf-8"
     )
+
+
+# ---------------------------------------------------------------------------
+# v0.9.0 Hierarchical v2 build (PR-C)
+# ---------------------------------------------------------------------------
+
+
+def build_wiki_v2(
+    project_root: Path,
+    *,
+    taxonomy: TaxonomyConfigV2,
+    provider: str | LlmClient = "mock",
+    seed: int = 0,
+    dry_run: bool = False,
+    output_dir: Path | None = None,
+    min_evidence: int = 1,
+    skip_numeric_titles: bool = False,
+) -> WikiResult:
+    """Hierarchical wiki build (v2). Layout::
+
+        wiki/
+          _index.md
+          <system>/_index.md
+          <system>/<subsystem>/_index.md
+          <system>/<subsystem>/<part>/_index.md
+          <system>/<subsystem>/<part>/<function>/<topic>.md
+
+    Evidence is routed to the deepest matchable category via
+    ``route_evidence_v2`` (longest-prefix). Inside each terminal category,
+    topics are Jaccard-clustered the same way ``_build_taxonomy_wiki`` does.
+    All evidence under a node lives in that node's directory; deeper
+    children are not promoted up.
+    """
+    import shutil
+    from collections import defaultdict
+
+    from .topics import (
+        EvidenceRef,
+        Topic,
+        _is_numeric_title,
+        _jaccard_distance,
+        _slugify,
+        _tokenize,
+        _walk_index,
+    )
+
+    project_root = Path(project_root).resolve()
+    kb_root = _kb_dir(project_root, output_dir)
+    if not kb_root.is_dir():
+        raise FileNotFoundError(
+            f"未在 {kb_root} 找到 kb/ 目录；请先运行 `kb extract`。"
+        )
+
+    llm: LlmClient
+    if isinstance(provider, str):
+        llm = get_provider(provider, seed=seed)
+        provider_name = provider
+    else:
+        llm = provider
+        provider_name = getattr(provider, "name", "custom")
+
+    # 1. Collect all evidence
+    all_evidence: list[EvidenceRef] = []
+    for doc_dir in sorted(p for p in kb_root.iterdir() if p.is_dir()):
+        idx_file = doc_dir / "index.json"
+        if not idx_file.is_file():
+            continue
+        try:
+            root = json.loads(idx_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            continue
+        pairs: list[tuple[EvidenceRef, frozenset[str]]] = []
+        _walk_index(root, doc_dir.name, pairs)
+        all_evidence.extend(ev for ev, _ in pairs)
+
+    # 2. Build PRD + PES section maps, route each evidence
+    prd_map = build_prd_section_map_v2(kb_root, taxonomy)
+    pes_map = build_pes_section_map_v2(kb_root, taxonomy)
+
+    path_evidence: dict[tuple[str, ...], list[EvidenceRef]] = defaultdict(list)
+    for ev in all_evidence:
+        path = route_evidence_v2(ev, taxonomy, prd_map, pes_map)
+        path_evidence[path].append(ev)
+
+    # 3. For each path, Jaccard-cluster into topics
+    all_topics: list[Topic] = []
+    all_entries: list[WikiEntry] = []
+    all_paths: list[tuple[str, ...]] = []
+    titles_by_path = _collect_titles_by_path(taxonomy)
+
+    for cat_path in sorted(path_evidence.keys()):
+        evs = path_evidence[cat_path]
+        if skip_numeric_titles:
+            evs = [e for e in evs if not _is_numeric_title(e.section_title)]
+        if not evs:
+            continue
+
+        tok_list = [(_tokenize(e.section_title), e) for e in evs]
+        n = len(tok_list)
+        uf = list(range(n))
+
+        def _f(x: int, p: list[int] = uf) -> int:
+            while p[x] != x:
+                p[x] = p[p[x]]
+                x = p[x]
+            return x
+
+        def _u(a: int, b: int, p: list[int] = uf) -> None:
+            ra, rb = _f(a, p), _f(b, p)
+            if ra != rb:
+                if ra < rb:
+                    p[rb] = ra
+                else:
+                    p[ra] = rb
+
+        for i in range(n):
+            for j in range(i + 1, n):
+                if _jaccard_distance(tok_list[i][0], tok_list[j][0]) <= 0.85:
+                    _u(i, j)
+
+        clusters: dict[int, list[int]] = defaultdict(list)
+        for i in range(n):
+            clusters[_f(i)].append(i)
+
+        cat_title = titles_by_path.get(cat_path, cat_path[-1])
+        for root_idx in sorted(clusters.keys()):
+            members = sorted(clusters[root_idx])
+            cluster_evs = tuple(tok_list[m][1] for m in members)
+            if len(cluster_evs) < min_evidence:
+                continue
+            word_count: dict[str, int] = defaultdict(int)
+            for m in members:
+                for w in tok_list[m][0]:
+                    word_count[w] += 1
+            if word_count:
+                best = sorted(word_count.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+            else:
+                best = cluster_evs[0].section_title or f"topic-{root_idx}"
+            topic_slug = _slugify(best, f"topic-{root_idx:04d}")
+            topic = Topic(slug=topic_slug, title=best, evidence=cluster_evs)
+            entry = build_topic_markdown(
+                topic, llm, kb_root=kb_root,
+                category_path=cat_path,
+                category_title=cat_title,
+            )
+            all_topics.append(topic)
+            all_entries.append(entry)
+            all_paths.append(cat_path)
+
+    if dry_run:
+        return WikiResult(
+            project_root=project_root,
+            topics=tuple(all_topics),
+            entries=tuple(all_entries),
+            provider_name=provider_name,
+            seed=seed,
+            unresolved_total=sum(len(e.unresolved_pins) for e in all_entries),
+        )
+
+    # 4. Write files
+    wiki_root = _wiki_dir(project_root, output_dir)
+    if wiki_root.exists():
+        for child in wiki_root.iterdir():
+            if child.is_dir():
+                shutil.rmtree(child)
+            elif child.is_file():
+                child.unlink()
+    wiki_root.mkdir(parents=True, exist_ok=True)
+
+    # Resolve slug collisions per (path, slug)
+    slug_counts: dict[tuple[tuple[str, ...], str], int] = defaultdict(int)
+    final_topics: list[Topic] = []
+    final_entries: list[WikiEntry] = []
+    final_paths: list[tuple[str, ...]] = []
+    for topic, entry, cat_path in zip(all_topics, all_entries, all_paths, strict=True):
+        slug_counts[(cat_path, topic.slug)] += 1
+        c = slug_counts[(cat_path, topic.slug)]
+        if c > 1:
+            new_slug = f"{topic.slug}-{c}"
+            topic = Topic(slug=new_slug, title=topic.title,
+                          evidence=topic.evidence)
+        final_topics.append(topic)
+        final_entries.append(entry)
+        final_paths.append(cat_path)
+
+    for topic, entry, cat_path in zip(final_topics, final_entries, final_paths,
+                                       strict=True):
+        target_dir = wiki_root.joinpath(*cat_path) if cat_path else wiki_root
+        target_dir.mkdir(parents=True, exist_ok=True)
+        out = target_dir / f"{topic.slug}.md"
+        _atomic_write_bytes(out, entry.markdown.encode("utf-8"))
+
+    # 5. Recursive _index.md generation
+    _write_v2_indices(wiki_root, taxonomy, final_topics, final_paths,
+                      titles_by_path)
+
+    # 6. Serialize index.json (taxonomy_mode + v2 paths)
+    sha_map = _load_source_sha256_map(project_root, output_dir)
+    idx_payload = _serialize_taxonomy_v2_index(
+        final_topics, final_entries, final_paths,
+        provider_name, seed, sha_map, taxonomy,
+    )
+    _atomic_write_bytes(wiki_root / "index.json", idx_payload)
+
+    return WikiResult(
+        project_root=project_root,
+        topics=tuple(final_topics),
+        entries=tuple(final_entries),
+        provider_name=provider_name,
+        seed=seed,
+        unresolved_total=sum(len(e.unresolved_pins) for e in final_entries),
+    )
+
+
+def _collect_titles_by_path(
+    taxonomy: TaxonomyConfigV2,
+) -> dict[tuple[str, ...], str]:
+    """Map (slug_path,) -> human title from the taxonomy tree."""
+    out: dict[tuple[str, ...], str] = {("_uncategorized",): "Uncategorized"}
+
+    def walk(nodes, prefix: tuple[str, ...]) -> None:
+        for n in nodes:
+            path = (*prefix, n.slug)
+            out[path] = n.title
+            walk(n.children, path)
+
+    walk(taxonomy.categories, ())
+    return out
+
+
+def _write_v2_indices(
+    wiki_root: Path,
+    taxonomy: TaxonomyConfigV2,
+    final_topics: list,
+    final_paths: list[tuple[str, ...]],
+    titles_by_path: dict[tuple[str, ...], str],
+) -> None:
+    """Write recursive _index.md at every level (root + each taxonomy node).
+
+    Each _index.md lists:
+      - child folders (with link to ``<slug>/_index.md``)
+      - terminal topics in *this* directory (link to ``<slug>.md``)
+    """
+    # Build path -> list of (topic_slug, topic_title) for terminal topics
+    terminals: dict[tuple[str, ...], list[tuple[str, str]]] = {}
+    for topic, path in zip(final_topics, final_paths, strict=True):
+        terminals.setdefault(path, []).append((topic.slug, topic.title))
+
+    # Root _index.md (lists top-level systems)
+    root_lines = [
+        f"# {taxonomy.source_prd} — 知识库",
+        "",
+        f"> 自动生成 (provider=mock, source_pes_glob={taxonomy.source_pes_glob!r})",
+        "",
+        "## 系统列表",
+        "",
+    ]
+    for sys_node in taxonomy.categories:
+        root_lines.append(f"- [{sys_node.title}]({sys_node.slug}/_index.md)")
+    # Also list any uncategorized topics under root
+    uncategorized = terminals.get(("_uncategorized",), [])
+    if uncategorized:
+        root_lines.extend(["", "## Uncategorized", ""])
+        for slug, title in sorted(uncategorized):
+            root_lines.append(f"- [{title}](_uncategorized/{slug}.md)")
+    _atomic_write_bytes(wiki_root / "_index.md",
+                        ("\n".join(root_lines) + "\n").encode("utf-8"))
+
+    # Recursive per-node _index.md
+    def _write_node(node, prefix: tuple[str, ...]) -> None:
+        path = (*prefix, node.slug)
+        target_dir = wiki_root.joinpath(*path)
+        # Only create the index if the directory is going to exist
+        # (i.e. has either children or terminal topics under it).
+        has_children = bool(node.children)
+        has_terminals = path in terminals
+        if not has_children and not has_terminals:
+            return
+        target_dir.mkdir(parents=True, exist_ok=True)
+
+        lines = [
+            f"# {node.title}",
+            "",
+            f"> Layer: `{node.layer}` · Slug path: `{'/'.join(path)}`",
+            "",
+        ]
+        if has_children:
+            lines.extend(["## 子分类", ""])
+            for c in node.children:
+                lines.append(f"- [{c.title}]({c.slug}/_index.md)")
+            lines.append("")
+        if has_terminals:
+            lines.extend(["## 本节文章", ""])
+            for slug, title in sorted(terminals[path]):
+                lines.append(f"- [{title}]({slug}.md)")
+            lines.append("")
+        _atomic_write_bytes(target_dir / "_index.md",
+                            "\n".join(lines).encode("utf-8"))
+        for c in node.children:
+            _write_node(c, path)
+
+    for sys_node in taxonomy.categories:
+        _write_node(sys_node, ())
+
+    # _uncategorized folder if any
+    if ("_uncategorized",) in terminals:
+        uc_dir = wiki_root / "_uncategorized"
+        uc_dir.mkdir(parents=True, exist_ok=True)
+        lines = [
+            "# Uncategorized",
+            "",
+            "> 未匹配到任何 taxonomy 分类的文章",
+            "",
+            "## 文章列表",
+            "",
+        ]
+        for slug, title in sorted(terminals[("_uncategorized",)]):
+            lines.append(f"- [{title}]({slug}.md)")
+        lines.append("")
+        _atomic_write_bytes(uc_dir / "_index.md",
+                            "\n".join(lines).encode("utf-8"))
+
+
+def _serialize_taxonomy_v2_index(
+    topics: list,
+    entries: list,
+    paths: list[tuple[str, ...]],
+    provider_name: str,
+    seed: int,
+    sha_map: dict[str, str],
+    taxonomy: TaxonomyConfigV2,
+) -> bytes:
+    obj = {
+        "schema_version": _WIKI_INDEX_SCHEMA,
+        "provider": provider_name,
+        "seed": seed,
+        "taxonomy_mode": True,
+        "taxonomy_version": 2,
+        "source_prd": taxonomy.source_prd,
+        "source_pes_glob": taxonomy.source_pes_glob,
+        "topics": [
+            {
+                "slug": t.slug,
+                "title": t.title,
+                "category_path": list(p),
+                # Keep legacy ``category`` (used by ``verify_wiki``) = joined path
+                "category": "/".join(p) if p else None,
+                "evidence_count": len(t.evidence),
+                "pin_count": e.pin_count,
+                "unresolved_pins": list(e.unresolved_pins),
+                "evidence_origins": sorted({
+                    sha_map[ev.doc_id]
+                    for ev in t.evidence
+                    if ev.doc_id in sha_map
+                }),
+                "evidence": [
+                    {
+                        "doc_id": ev.doc_id,
+                        "anchor": ev.anchor,
+                        "section_title": ev.section_title,
+                        "page_start": ev.page_start,
+                        "page_end": ev.page_end,
+                    }
+                    for ev in t.evidence
+                ],
+            }
+            for t, e, p in zip(topics, entries, paths, strict=True)
+        ],
+    }
+    return (
+        json.dumps(obj, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+    ).encode("utf-8")
