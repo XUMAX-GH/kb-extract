@@ -107,7 +107,7 @@ def test_kb_adapters_lists_registered_names():
     runner = CliRunner()
     result = runner.invoke(main, ["adapters"])
     assert result.exit_code == 0
-    for name in ("pdf_docling", "docx", "xlsx", "pptx", "image"):
+    for name in ("pdf_v2", "docx_v2", "xlsx_v2", "pptx_v2", "image"):
         assert name in result.output
 
 
@@ -117,7 +117,7 @@ def test_kb_adapters_json_machine_readable():
     assert result.exit_code == 0
     payload = json.loads(result.output)
     names = [a["name"] for a in payload]
-    assert "docx" in names
+    assert "docx_v2" in names
 
 
 def test_kb_manifest_table_default(tmp_path):

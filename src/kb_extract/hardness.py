@@ -226,10 +226,37 @@ def check_h11_warnings_allowlist(meta: ExtractionMeta) -> None:
         )
 
 
+def check_h22_image_integrity(markdown: str, out_dir: Path) -> None:
+    """H22: every ``![](assets/...)`` reference must point at a file whose
+    magic bytes identify it as a supported image format.
+
+    Catches the case where ``save_image()`` was bypassed and a text file
+    (or empty file) was written under the image extension. Complements
+    H5 (existence/closure) and H6 (sha truth) with content validation.
+    """
+    from .adapters._image_utils import detect_image_format
+
+    bad: list[str] = []
+    for rel in sorted(_md_referenced_assets(markdown)):
+        path = out_dir / rel
+        try:
+            blob = path.read_bytes()
+        except OSError:
+            bad.append(f"{rel} (unreadable)")
+            continue
+        if detect_image_format(blob) is None:
+            bad.append(f"{rel} (no valid image magic bytes)")
+    if bad:
+        raise HardnessViolation(
+            invariant="H22",
+            detail=f"image-integrity failures: {bad[:5]}",
+        )
+
+
 def assert_invariants(
     result, src_path: Path, out_dir: Path, *, total_pages: int
 ) -> None:
-    """Run H3..H7, H9..H11 in order, raising on the first violation.
+    """Run H3..H7, H9..H11, H22 in order, raising on the first violation.
 
     H1 (no socket) and H2 (no LLM imports) are test-level checks.
     H8 (determinism) is a test-mode check (double-run compare).
@@ -244,3 +271,4 @@ def assert_invariants(
     check_h9_page_range_closure(result.index, total_pages)
     check_h10_outline_source_truth(result.meta, result.index)
     check_h11_warnings_allowlist(result.meta)
+    check_h22_image_integrity(result.markdown, out_dir)

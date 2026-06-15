@@ -5,6 +5,79 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本号遵循 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
+## [0.8.0] — 2026-06-15
+
+**MinerU 启发的 Parser v2**：四个核心适配器（docx / pptx / xlsx / pdf）
+重写为 v2，原生支持合并单元格 HTML、嵌入图像抽取、PDF 表格识别、页眉/
+页脚去重、扫描页警告，以及统一的资产命名约定。v2 适配器自动注册为默认，
+原 v1 适配器保留为可显式 import 的兼容入口但不再自动注册。
+
+### Added
+
+- **共享辅助模块** (`src/kb_extract/adapters/_table_utils.py`,
+  `src/kb_extract/adapters/_image_utils.py`)：
+  - `CellInfo` 数据类 + `cells_to_html(rows)` 把无幻影格的二维网格渲染成
+    带 `colspan` / `rowspan` 的 HTML `<table>`。
+  - `detect_image_format()` 通过 magic bytes 识别 PNG/JPG/GIF/BMP；
+    `save_image()` 写入 `assets/<prefix>_<idx>.<ext>`，自动忽略 < 1 KiB
+    的装饰性图标。纯 stdlib，跨平台 byte-identical。
+- **`DocxV2Adapter`** (`adapters/docx_v2.py`)：
+  - 合并单元格通过直接解析 `<w:tr>` / `<w:tc>` / `<w:vMerge>` XML 实现
+    （绕过 python-docx 的虚拟单元格陷阱），输出带 `colspan` /
+    `rowspan` 的 HTML 表格。
+  - 嵌入图像通过 `<a:blip r:embed>` 解析 → `doc.part.related_parts`，
+    走 `save_image()` 写到 `assets/`。
+- **`PptxV2Adapter`** (`adapters/pptx_v2.py`)：
+  - `MSO_SHAPE_TYPE.PICTURE` 图像抽取 → `assets/slide_N_img_M.ext`。
+  - 表格通过 `cell.span_width` / `span_height` 构建无幻影网格 → HTML。
+  - `GroupShape` 递归（`_walk_shapes()`），组内文本和图像不再丢失。
+  - 演讲者备注切换为 `> **Note:**` blockquote 标记。
+- **`XlsxV2Adapter`** (`adapters/xlsx_v2.py`)：
+  - `ws.merged_cells.ranges` → HTML 表格保留合并；放弃 `read_only=True`
+    以换取合并信息可见。
+  - `cell.number_format` 感知：百分比（`0.0%`）、货币（`$#,##0.00`）、
+    日期（ISO 8601）均按格式渲染为字符串。
+  - 空单元格显示为 U+2014 em-dash，稀疏网格更易识别。
+- **`PdfV2Adapter`** (`adapters/pdf_v2.py`)：
+  - 页眉/页脚去重：`_detect_running_lines()` 统计每页（去重计数）后
+    在 >=50% 页面出现的行视为 running，在 body 文本中剥离。
+  - 表格识别：`page.find_tables()` 每页扫描 → `cells_to_html()` 注入
+    对应 section 锚点之后。
+  - 每页 scanned 警告：少于 50 个非空白字符的页发出
+    `pdf.scanned_page:pN`。原 `pdf.scanned_no_text_layer` 仍保留。
+  - 图像走 `save_image()` 统一命名 `page_N_img_M.ext`。
+- **H22 image-integrity hardness invariant** (`hardness.py`,
+  `warnings_registry.py`)：每个 `![](assets/...)` 引用的文件必须通过
+  magic-bytes 校验，捕获绕过 `save_image()` 的伪图像文件。
+  新增 5 个单元测试。
+
+### Changed
+
+- `kb_extract.adapters.__init__` 不再自动注册 v1 适配器（`DocxAdapter`、
+  `PptxAdapter`、`XlsxAdapter`、`PdfDoclingAdapter`），而是注册它们的 v2
+  对应物。v1 类仍可显式 import 用于显式对照测试或下游 pinning。
+- `assert_invariants()` 在 H3..H11 之后多跑一次 H22 检查。
+- `warnings_registry`：新增 `pdf.scanned_page:p\d+` 允许的警告格式。
+
+### Tests
+
+- 12 个 `_table_utils` 单元测试 + 13 个 `_image_utils` 单元测试。
+- 每个 v2 适配器各 9–10 个测试，覆盖：baseline 等价、确定性、hardness
+  invariants（含新 H22）、合并单元格、图像抽取、特性增强。
+- 共新增 **80+ 个测试**；总计 **390 通过**；ruff 全绿。
+
+### Migration notes
+
+- 调用方默认使用 v2，无需任何代码改动。
+- 输出格式有以下可见差异：
+  - 含合并单元格的表格从 pipe markdown 切换为 HTML `<table>`。
+  - 演讲者备注从 `> Note:` 改为 `> **Note:**`。
+  - XLSX 空单元格从空字符串改为 em-dash。
+  - PDF 多页文档中可能新增 `pdf.scanned_page:p*` 警告。
+
+---
+
+
 ## [0.7.0] — 2026-06-15
 
 按 PRD 文档结构把 wiki 重新组织成**子系统分类**：evidence 经过 4 层优先级

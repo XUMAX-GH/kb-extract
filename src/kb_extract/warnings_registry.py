@@ -10,6 +10,7 @@ import re
 ALLOWED_WARNING_PATTERNS: tuple[str, ...] = (
     # PDF / docling adapter
     r"^pdf\.scanned_no_text_layer$",
+    r"^pdf\.scanned_page:p\d+$",
     r"^pdf\.password_protected$",
     r"^pdf\.low_confidence_heading:p\d+$",
     r"^pdf\.font_decode_failed:p\d+$",
