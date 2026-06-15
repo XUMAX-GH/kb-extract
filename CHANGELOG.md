@@ -5,7 +5,68 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本号遵循 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
-## [0.6.0] — 2026-06-15
+## [0.7.0] — 2026-06-15
+
+按 PRD 文档结构把 wiki 重新组织成**子系统分类**：evidence 经过 4 层优先级
+路由（heading-path → linked-spec glob → keyword → fallback）落到对应的
+`wiki/<category>/<slug>.md`，每个 category 自动生成 `_index.md` 入口页。
+原有的扁平模式完全向后兼容（不带 `--taxonomy` 时行为不变）。
+
+### Added
+
+- **`TaxonomyConfig` 数据模型与 JSON I/O**
+  (`src/kb_extract/wiki/taxonomy.py`)：
+  - `Category` (`slug` / `title` / `prd_headings` / `linked_specs` /
+    `keywords`) + `TaxonomyConfig` (`version` / `source_prd` /
+    `categories`)，全部 `frozen=True, slots=True`，确定性序列化。
+  - `load_taxonomy(path)` / `save_taxonomy(cfg, path)` — JSON I/O 带
+    schema 校验，原子写盘（**H21**）。
+- **4 层 evidence 路由**：`route_evidence(ev, cfg, prd_section_map)` 按
+  priority 1 (PRD heading-path) → 2 (linked-spec fnmatch) →
+  3 (keyword 在 section_title 中) → 4 (`_uncategorized` fallback) 决定
+  evidence 归属的 category。`build_prd_section_map(kb_root, cfg)` 从 PRD
+  的 `index.json` 递归构建 anchor → category 映射。
+- **`generate_taxonomy(kb_root, prd_doc_id=None)`** 自动从 PRD 文档结构
+  生成 `TaxonomyConfig`：未指定 `prd_doc_id` 时自动检测含 "PRD" 的目录，
+  以 H1 章节为 category，把 H2 子章节与匹配的 spec 文档作为
+  `prd_headings` / `linked_specs`。
+- **`build_wiki(..., taxonomy=cfg)` 端到端 taxonomy 模式**
+  (`wiki/orchestrator.py`)：路由所有 evidence 到 category，每个 category
+  内部再做 Jaccard 聚类，输出 `wiki/<cat>/<slug>.md` +
+  `wiki/<cat>/_index.md`；`index.json` 新增 `taxonomy_mode=true` 与每个
+  topic 的 `category` 字段。
+- **`writer.build_topic_markdown(category_slug=..., category_title=...)`**：
+  footnote URL 自动深一层（`../../kb/...`），system prompt 追加子系统
+  上下文提示。
+- **`verify_wiki()` 递归校验**：根据 `taxonomy_mode` 自动处理两种布局
+  (`wiki/*.md` vs `wiki/<cat>/<slug>.md`)，H14 行为保持不变。
+- **CLI**：
+  - `kb wiki taxonomy generate <path> [--prd-doc DOC] [--out FILE] [-o DIR]`
+    — 自动生成 `taxonomy.json`（默认写到 `<project>/wiki/taxonomy.json`）。
+  - `kb wiki build --taxonomy <taxonomy.json>` — 启用 category 模式。
+    无此 flag 时行为与 v0.6.0 完全一致。
+
+### Hardness
+
+- **H21 — Taxonomy schema integrity**：`load_taxonomy` 拒绝 schema 不一致
+  的 JSON；`save_taxonomy` 走 `serialize_markdown` 同款的 byte-identical
+  序列化（`sort_keys=True`、UTF-8、LF），保证跨平台 hash 稳定。
+
+### 测试
+
+新增 27 个用例：`test_taxonomy_config.py` (5) + `test_taxonomy_router.py`
+(13) + `test_taxonomy_generate.py` (5) + `test_wiki_taxonomy_e2e.py` (5) +
+`test_cli_taxonomy.py` (4)，全部 `disable_socket`、纯算法、确定性。
+
+### 向后兼容
+
+- `build_wiki(...)` 不传 `taxonomy=` 时输出与 v0.6.0 byte-identical。
+- `wiki/index.json` 新增字段 (`taxonomy_mode` / `category`)；旧的扁平
+  index 仍能被新 `verify_wiki` 正确识别（`taxonomy_mode` 缺失 → False）。
+
+---
+
+
 
 把 wiki 层从 *基于标题的占位 LLM* 升级为 *基于章节正文的真实 LLM*：新增
 `cached` provider（用于本地/CI 可复现地驱动任意 LLM 的回放），

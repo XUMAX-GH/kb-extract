@@ -225,6 +225,13 @@ def wiki_group() -> None:
     is_flag=True,
     help="丢弃标题仅为数字/点号/短横线的 topic（v0.6.0）。",
 )
+@click.option(
+    "--taxonomy",
+    "taxonomy_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="taxonomy.json 路径（v0.7.0）。指定时按 category 子目录组织 wiki/。",
+)
 def wiki_build(
     path: Path,
     provider: str,
@@ -236,6 +243,7 @@ def wiki_build(
     record_missing: Path | None,
     min_evidence: int,
     skip_numeric_titles: bool,
+    taxonomy_path: Path | None,
 ) -> None:
     """基于 PATH/kb/ 重新构建 wiki/。"""
     from .wiki import build_wiki
@@ -255,6 +263,14 @@ def wiki_build(
             record_missing_path=record_missing,
         )
 
+    taxonomy_cfg = None
+    if taxonomy_path is not None:
+        if not taxonomy_path.is_file():
+            raise click.UsageError(f"--taxonomy 文件不存在: {taxonomy_path}")
+        from .wiki.taxonomy import load_taxonomy
+
+        taxonomy_cfg = load_taxonomy(taxonomy_path)
+
     result = build_wiki(
         path,
         provider=provider_arg,
@@ -263,6 +279,7 @@ def wiki_build(
         output_dir=output_dir,
         min_evidence=min_evidence,
         skip_numeric_titles=skip_numeric_titles,
+        taxonomy=taxonomy_cfg,
     )
     if as_json:
         click.echo(json.dumps({
@@ -423,6 +440,84 @@ def wiki_verify(path: Path, as_json: bool, output_dir: Path | None) -> None:
         f"violations={len(violations)}",
     )
     sys.exit(exit_code)
+
+
+@wiki_group.group(name="taxonomy")
+def wiki_taxonomy_group() -> None:
+    """Taxonomy 配置管理子命令（v0.7.0）。"""
+
+
+@wiki_taxonomy_group.command(name="generate")
+@click.argument("path", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--output-dir", "-o", "output_dir",
+    type=click.Path(file_okay=False, path_type=Path),
+    default=None,
+    help="从此目录读取 kb/，taxonomy.json 默认写入这里的 wiki/。",
+)
+@click.option(
+    "--prd-doc",
+    "prd_doc_id",
+    default=None,
+    help="PRD 文档 ID（kb/ 下的目录名）。不指定时自动检测含 'PRD' 的文档。",
+)
+@click.option(
+    "--out",
+    "out_path",
+    type=click.Path(dir_okay=False, path_type=Path),
+    default=None,
+    help="taxonomy.json 输出路径（默认: <project>/wiki/taxonomy.json）。",
+)
+@click.option("--json", "as_json", is_flag=True, help="JSON 输出。")
+def wiki_taxonomy_generate(
+    path: Path,
+    output_dir: Path | None,
+    prd_doc_id: str | None,
+    out_path: Path | None,
+    as_json: bool,
+) -> None:
+    """从 PRD 文档结构自动生成 taxonomy.json (v0.7.0)。"""
+    from .layout import kb_dir as _kb_dir
+    from .layout import wiki_dir as _wiki_dir
+    from .wiki.taxonomy import generate_taxonomy, save_taxonomy
+
+    if output_dir is not None:
+        output_dir = output_dir.resolve()
+
+    kb_root = _kb_dir(path, output_dir)
+    if not kb_root.is_dir():
+        raise click.UsageError(f"kb/ 目录不存在: {kb_root}")
+
+    cfg = generate_taxonomy(kb_root, prd_doc_id=prd_doc_id)
+
+    if out_path is None:
+        wiki_root = _wiki_dir(path, output_dir)
+        wiki_root.mkdir(parents=True, exist_ok=True)
+        out_path = wiki_root / "taxonomy.json"
+
+    save_taxonomy(cfg, out_path)
+
+    if as_json:
+        click.echo(json.dumps({
+            "ok": True,
+            "out": str(out_path),
+            "source_prd": cfg.source_prd,
+            "category_count": len(cfg.categories),
+            "categories": [c.slug for c in cfg.categories],
+        }, indent=2, sort_keys=True))
+    else:
+        click.echo(
+            f"wiki taxonomy generate: categories={len(cfg.categories)} "
+            f"source_prd={cfg.source_prd} -> {out_path}"
+        )
+    _record_history(
+        path, "wiki taxonomy generate",
+        {"prd_doc_id": prd_doc_id,
+         "out": str(out_path),
+         "output_dir": str(output_dir) if output_dir else None},
+        0,
+        f"categories={len(cfg.categories)}",
+    )
 
 
 @main.command(name="remember")

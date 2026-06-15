@@ -27,22 +27,30 @@ _PER_BODY_CHARS = 1200
 _MAX_EVIDENCE_CHARS = 1500
 
 
-def _build_prompt(topic: Topic, kb_root: Path | None = None) -> list[Message]:
-    sys_msg: Message = {
-        "role": "system",
-        "content": (
-            "You are summarising technical hardware/firmware specification "
-            "documentation. Every factual claim MUST be followed by a citation "
-            "of the form [^ev-N] where N indexes the numbered evidence sections "
-            "supplied below. Do NOT invent facts; if the evidence is thin, say "
-            "so explicitly. Prefer concrete numbers, tolerances, standards "
-            "(UL/IEC/MIL/etc), and named components over generalities. Reply in "
-            "the same language as the topic title (Chinese title → Chinese body, "
-            "English title → English body). Use markdown headings and short "
-            "paragraphs. Target 200-400 words. Do NOT add a top-level # heading "
-            "(the wrapper supplies one)."
-        ),
-    }
+def _build_prompt(
+    topic: Topic,
+    kb_root: Path | None = None,
+    *,
+    category_title: str | None = None,
+) -> list[Message]:
+    sys_content = (
+        "You are summarising technical hardware/firmware specification "
+        "documentation. Every factual claim MUST be followed by a citation "
+        "of the form [^ev-N] where N indexes the numbered evidence sections "
+        "supplied below. Do NOT invent facts; if the evidence is thin, say "
+        "so explicitly. Prefer concrete numbers, tolerances, standards "
+        "(UL/IEC/MIL/etc), and named components over generalities. Reply in "
+        "the same language as the topic title (Chinese title → Chinese body, "
+        "English title → English body). Use markdown headings and short "
+        "paragraphs. Target 200-400 words. Do NOT add a top-level # heading "
+        "(the wrapper supplies one)."
+    )
+    if category_title:
+        sys_content += (
+            f"\n\nThis topic belongs to the **{category_title}** subsystem category. "
+            "Focus your summary on aspects relevant to this subsystem."
+        )
+    sys_msg: Message = {"role": "system", "content": sys_content}
     lines = [
         f"Topic: {topic.title}",
         "",
@@ -81,21 +89,28 @@ def build_topic_markdown(
     llm: LlmClient,
     *,
     kb_root: Path | None = None,
+    category_slug: str | None = None,
+    category_title: str | None = None,
 ) -> WikiEntry:
     """生成单个 topic 的完整 markdown（含 frontmatter + body + footnotes）。
 
     ``kb_root`` 可选；提供时 prompt 会包含每个 evidence section 的正文摘录。
+    ``category_slug``: when set, footnote URLs are one level deeper:
+    ``../../kb/<doc>/main.md#anchor`` instead of ``../kb/<doc>/main.md#anchor``.
+    ``category_title``: when set, adds subsystem context to the LLM prompt.
     """
     if not topic.evidence:
         raise ValueError(f"topic {topic.slug} has no evidence")
 
-    messages = _build_prompt(topic, kb_root=kb_root)
+    messages = _build_prompt(topic, kb_root=kb_root, category_title=category_title)
     body = llm.chat(messages)
 
     # 收集 pin
     pin_numbers = sorted({int(m.group(1)) for m in _PIN_RE.finditer(body)})
     ev_count = len(topic.evidence)
     unresolved = tuple(n for n in pin_numbers if n < 1 or n > ev_count)
+
+    kb_prefix = "../../kb" if category_slug else "../kb"
 
     # 构造 footnote 定义（按出现顺序）
     footnote_lines: list[str] = []
@@ -104,7 +119,7 @@ def build_topic_markdown(
             footnote_lines.append(f"[^ev-{n}]: (UNRESOLVED — evidence index {n} out of range)")
             continue
         ev = topic.evidence[n - 1]
-        url = f"../kb/{ev.doc_id}/main.md#{ev.anchor}"
+        url = f"{kb_prefix}/{ev.doc_id}/main.md#{ev.anchor}"
         page_hint = ""
         if ev.page_start is not None:
             page_hint = f" (p.{ev.page_start})"
