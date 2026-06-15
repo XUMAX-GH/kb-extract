@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml/badge.svg)](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.6.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.8.0-blue.svg)](CHANGELOG.md)
 
 ---
 
@@ -69,8 +69,8 @@ cd kb-extract
 完成后运行：
 
 ```bash
-kb --version          # 0.1.0
-kb adapters           # 列出 5 个内置适配器
+kb --version          # 0.8.0
+kb adapters           # 列出 5 个内置适配器（4 个 v2 + 1 个 image）
 ```
 
 ### 卸载
@@ -213,6 +213,92 @@ kb wiki verify ./MyProject
 KB_EXTRACT_LLM_PROVIDER=openai kb wiki build ./MyProject
 # v0.3 仅实现了 mock；openai/anthropic/ollama 留了 protocol 占位
 ```
+
+---
+
+## PRD 驱动的 Wiki 分类（v0.7.0）
+
+之前的 wiki 把所有事实塞进 `_uncategorized`，不利于按主题浏览。
+从 v0.7.0 起，可以**从 PRD 文档结构自动生成 taxonomy 配置**，
+然后按 PRD 章节把事实分流到不同的 wiki 文件。
+
+```bash
+# 1) 先做一次 kb extract，让 PRD 进入 kb/
+kb extract ./MyProject
+
+# 2) 从 PRD 一级 / 二级标题自动生成 wiki/taxonomy.json
+kb wiki taxonomy generate ./MyProject \
+    --prd-doc-id <PRD 文档目录名> \
+    -o ./MyProject
+
+# 3) 重新构建 wiki，所有 evidence 会按 4 层优先级被路由：
+#    显式 doc_id 命中 > PES 文档号引用 > 章节标题映射 > 关键词
+kb wiki build ./MyProject --provider mock --seed 0
+```
+
+新增不变量：
+
+- **H21**：`taxonomy.json` 必须满足 schema 完整性（version、source_prd、
+  唯一 slug、空 keywords 等等都由 `validate_taxonomy` 强制）。
+
+---
+
+## Parser v2（v0.8.0）
+
+v0.8.0 把 4 个核心解析器（PDF / DOCX / PPTX / XLSX）整体重写为 **v2 实现**，
+统一引入了：
+
+- **真实图片落盘**：所有内联图片以 `bytes → kb/<doc>/assets/img-<sha8>.<ext>`
+  形式确定性命名（基于内容 SHA-256 前 8 位），Markdown 中以
+  `![alt](../assets/img-xxxxxxxx.png)` 引用，跨平台 byte-identical。
+- **更稳健的章节切分**：合并样式 + 字号启发，避免漏掉无样式但视觉上明显
+  的标题；表格转 GFM，列对齐与 NBSP 行为规范化。
+- **图像完整性 H22**：任何 adapter 写入 `assets/` 必须经过 `save_image()`
+  辅助函数（统一计算 hash、原子写入、防止内容漂移）。AST 静态检查
+  禁止 adapters 层绕过 `save_image` 直接 `Path.write_bytes`。
+
+升级是**完全兼容**的：旧产物用 `kb verify` 校验仍然过得了，但建议跑
+`kb extract --force` 重新生成以享受图片确定性命名带来的可追溯性。
+
+---
+
+## 分层 Wiki 知识库（v0.9.0，进行中）
+
+v0.9.0 将把 wiki 的扁平分类升级为按 **PRD + PES 真实层级**的 4 层
+分类树：
+
+```
+system           ← PRD 一级标题 (e.g. Audio System)
+ └─ subsystem    ← PRD 二级标题 (e.g. Speaker)
+     └─ part     ← PES 文档下的组件 (e.g. Tweeter)
+         └─ function ← 重要功能（自动生成或人工标注）
+```
+
+设计要点（详见 `docs/superpowers/specs/2026-06-15-taxonomy-v2-design.md`）：
+
+- PRD 提供顶层骨架（system / subsystem），PES 通过 PRD 的
+  `linked_specs` 引用挂载到对应 subsystem 下，形成 part / function 子树。
+- 路由按 **最长前缀匹配**：能匹配到 function 就不会停在 part；
+  实在匹配不到才回退到最近的可匹配祖先。
+- 输出布局递归生成 `_index.md`：
+
+```
+wiki/
+  _index.md                     ← 系统列表
+  audio/_index.md               ← Audio 系统下的子系统列表
+  audio/speaker/_index.md       ← Speaker 子系统下的零件列表
+  audio/speaker/tweeter.md      ← 终端 wiki 文件，含 [^ev-N] 脚注
+  audio/speaker/tweeter/_index.md  (如果 tweeter 还有 function 子层)
+```
+
+- 新增 H21 v2 不变量：`layer ∈ {system, subsystem, part, function}`、
+  树深度 ≤ 4、父子层严格递降、同级 slug 唯一。
+- CLI 新增可选 `--pes-glob '<pattern>'` 让 `kb wiki taxonomy generate`
+  把 PES 文档纳入挂载来源；不传时退化为 v0.7.0 行为（PRD-only，2 层）。
+
+迁移完全透明：v1 taxonomy.json 在 `load_taxonomy_v2` 读取时会被自动
+升级为 v2 schema（`source_pes_glob=None`、所有 v1 类目层级标记为
+`system`、children 为空）。
 
 ---
 

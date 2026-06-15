@@ -51,6 +51,57 @@ class Category:
 
 
 @dataclass(frozen=True, slots=True)
+class CategoryNode:
+    """Hierarchical taxonomy v2 node (spec 2026-06-15).
+
+    A CategoryNode represents one layer in the system -> subsystem ->
+    part -> function tree. Children must use a strictly descending layer.
+    Designed to coexist with the v1 ``Category`` class during the v0.9.0
+    migration; v1 is retained for backwards compatibility until PR-B
+    switches all callers over.
+    """
+    slug: str
+    title: str
+    layer: str  # "system" | "subsystem" | "part" | "function"
+    prd_headings: tuple[str, ...] = ()
+    pes_headings: tuple[str, ...] = ()
+    linked_specs: tuple[str, ...] = ()
+    keywords: tuple[str, ...] = ()
+    children: tuple[CategoryNode, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "slug": self.slug,
+            "title": self.title,
+            "layer": self.layer,
+            "prd_headings": list(self.prd_headings),
+            "pes_headings": list(self.pes_headings),
+            "linked_specs": list(self.linked_specs),
+            "keywords": list(self.keywords),
+            "children": [child.to_dict() for child in self.children],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, object]) -> CategoryNode:
+        raw_children = data.get("children", ())
+        children: tuple[CategoryNode, ...] = ()
+        if isinstance(raw_children, list):
+            children = tuple(
+                cls.from_dict(c) for c in raw_children if isinstance(c, dict)
+            )
+        return cls(
+            slug=str(data["slug"]),
+            title=str(data["title"]),
+            layer=str(data["layer"]),
+            prd_headings=tuple(str(item) for item in data.get("prd_headings", ())),
+            pes_headings=tuple(str(item) for item in data.get("pes_headings", ())),
+            linked_specs=tuple(str(item) for item in data.get("linked_specs", ())),
+            keywords=tuple(str(item) for item in data.get("keywords", ())),
+            children=children,
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class TaxonomyConfig:
     version: int
     source_prd: str
@@ -408,3 +459,179 @@ def generate_taxonomy(
         source_prd=prd_doc_id,
         categories=tuple(categories),
     )
+
+
+# ---------------------------------------------------------------------------
+# Hierarchical Taxonomy v2 (PR-A: data model + schema migrate + H21)
+# Spec: docs/superpowers/specs/2026-06-15-taxonomy-v2-design.md
+# ---------------------------------------------------------------------------
+
+_VALID_LAYERS: tuple[str, ...] = ("system", "subsystem", "part", "function")
+_LAYER_INDEX: dict[str, int] = {name: i for i, name in enumerate(_VALID_LAYERS)}
+
+
+@dataclass(frozen=True, slots=True)
+class TaxonomyConfigV2:
+    """Hierarchical taxonomy root (schema v2).
+
+    ``source_pes_glob`` is the fnmatch pattern used to enumerate PES
+    documents at generation time, kept for reproducibility. ``None``
+    means PES mounting was not performed (flat PRD-only generation).
+    """
+    version: int
+    source_prd: str
+    source_pes_glob: str | None
+    categories: tuple[CategoryNode, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "version": self.version,
+            "source_prd": self.source_prd,
+            "source_pes_glob": self.source_pes_glob,
+            "categories": [cat.to_dict() for cat in self.categories],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, object]) -> TaxonomyConfigV2:
+        raw_cats = data.get("categories", ())
+        cats: tuple[CategoryNode, ...] = ()
+        if isinstance(raw_cats, list):
+            cats = tuple(
+                CategoryNode.from_dict(c) for c in raw_cats if isinstance(c, dict)
+            )
+        glob_val = data.get("source_pes_glob")
+        return cls(
+            version=int(data["version"]),
+            source_prd=str(data["source_prd"]),
+            source_pes_glob=None if glob_val is None else str(glob_val),
+            categories=cats,
+        )
+
+
+def migrate_v1_to_v2(raw: dict) -> dict:
+    """Transparent migrator from schema v1 to v2.
+
+    Idempotent: v2 input is returned untouched. Every v1 category is
+    promoted to a layer="system" CategoryNode with empty
+    ``children`` / ``pes_headings``; ``source_pes_glob`` defaults to
+    ``None`` to signal PES mounting was never performed.
+    """
+    version = int(raw.get("version", 1))
+    if version >= 2:
+        return raw
+    return {
+        "version": 2,
+        "source_prd": raw.get("source_prd", ""),
+        "source_pes_glob": None,
+        "categories": [
+            {
+                "slug": cat.get("slug", ""),
+                "title": cat.get("title", ""),
+                "layer": "system",
+                "prd_headings": list(cat.get("prd_headings", [])),
+                "pes_headings": [],
+                "linked_specs": list(cat.get("linked_specs", [])),
+                "keywords": list(cat.get("keywords", [])),
+                "children": [],
+            }
+            for cat in raw.get("categories", [])
+            if isinstance(cat, dict)
+        ],
+    }
+
+
+def load_taxonomy_v2(path: Path) -> TaxonomyConfigV2:
+    """Load taxonomy.json, transparently migrating v1 -> v2 if needed.
+
+    Validation is run before return so callers always get a config that
+    satisfies H21.
+    """
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    raw = migrate_v1_to_v2(raw)
+    cfg = TaxonomyConfigV2.from_dict(raw)
+    validate_taxonomy_v2(cfg)
+    return cfg
+
+
+def save_taxonomy_v2(cfg: TaxonomyConfigV2, path: Path) -> None:
+    """Write taxonomy.json atomically (deterministic bytes)."""
+    validate_taxonomy_v2(cfg)
+    data = (
+        json.dumps(cfg.to_dict(), ensure_ascii=False, indent=2, sort_keys=False) + "\n"
+    ).encode("utf-8")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with NamedTemporaryFile(
+        mode="wb", dir=path.parent, delete=False, prefix=".tmp-", suffix=".json"
+    ) as tmp:
+        tmp.write(data)
+        tmp_name = tmp.name
+    os.replace(tmp_name, path)
+
+
+def validate_taxonomy_v2(cfg: TaxonomyConfigV2) -> None:
+    """H21 v2: validate hierarchical taxonomy invariants.
+
+    Raises :class:`HardnessViolation` with ``invariant="H21"`` on:
+      - wrong schema version
+      - empty slug
+      - duplicate sibling slugs in same namespace
+      - unknown layer name
+      - layer that is not strictly descending from its parent
+      - tree depth > 4
+    """
+    from ..errors import HardnessViolation
+
+    if cfg.version != 2:
+        raise HardnessViolation(
+            invariant="H21",
+            detail=f"TaxonomyConfigV2.version must be 2, got {cfg.version}",
+        )
+
+    def walk(nodes: tuple[CategoryNode, ...], parent_layer_idx: int,
+             depth: int, path_breadcrumb: str) -> None:
+        if not nodes:
+            return
+        if depth > 4:
+            raise HardnessViolation(
+                invariant="H21",
+                detail=f"taxonomy depth exceeds 4 at {path_breadcrumb!r}",
+            )
+        seen: set[str] = set()
+        for node in nodes:
+            if not node.slug.strip():
+                raise HardnessViolation(
+                    invariant="H21",
+                    detail=f"empty slug at {path_breadcrumb!r}",
+                )
+            if node.slug in seen:
+                raise HardnessViolation(
+                    invariant="H21",
+                    detail=(
+                        f"duplicate sibling slug {node.slug!r} under "
+                        f"{path_breadcrumb!r}"
+                    ),
+                )
+            seen.add(node.slug)
+            if node.layer not in _LAYER_INDEX:
+                raise HardnessViolation(
+                    invariant="H21",
+                    detail=(
+                        f"unknown layer {node.layer!r} at "
+                        f"{path_breadcrumb}/{node.slug}; expected one of "
+                        f"{_VALID_LAYERS}"
+                    ),
+                )
+            node_idx = _LAYER_INDEX[node.layer]
+            if node_idx != parent_layer_idx + 1:
+                raise HardnessViolation(
+                    invariant="H21",
+                    detail=(
+                        f"layer {node.layer!r} at {path_breadcrumb}/{node.slug} "
+                        f"must be exactly one level deeper than parent "
+                        f"({_VALID_LAYERS[parent_layer_idx] if parent_layer_idx >= 0 else 'root'})"
+                    ),
+                )
+            walk(node.children, node_idx, depth + 1,
+                 f"{path_breadcrumb}/{node.slug}")
+
+    walk(cfg.categories, parent_layer_idx=-1, depth=1, path_breadcrumb="")
