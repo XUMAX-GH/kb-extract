@@ -264,23 +264,48 @@ def wiki_build(
         )
 
     taxonomy_cfg = None
+    taxonomy_cfg_v2 = None
     if taxonomy_path is not None:
         if not taxonomy_path.is_file():
             raise click.UsageError(f"--taxonomy 文件不存在: {taxonomy_path}")
-        from .wiki.taxonomy import load_taxonomy
+        # Detect schema version
+        try:
+            raw = json.loads(taxonomy_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise click.UsageError(f"taxonomy.json 不是合法 JSON: {exc}") from exc
+        if int(raw.get("version", 1)) >= 2:
+            from .wiki.taxonomy import load_taxonomy_v2
 
-        taxonomy_cfg = load_taxonomy(taxonomy_path)
+            taxonomy_cfg_v2 = load_taxonomy_v2(taxonomy_path)
+        else:
+            from .wiki.taxonomy import load_taxonomy
 
-    result = build_wiki(
-        path,
-        provider=provider_arg,
-        seed=seed,
-        dry_run=dry_run,
-        output_dir=output_dir,
-        min_evidence=min_evidence,
-        skip_numeric_titles=skip_numeric_titles,
-        taxonomy=taxonomy_cfg,
-    )
+            taxonomy_cfg = load_taxonomy(taxonomy_path)
+
+    if taxonomy_cfg_v2 is not None:
+        from .wiki import build_wiki_v2
+
+        result = build_wiki_v2(
+            path,
+            taxonomy=taxonomy_cfg_v2,
+            provider=provider_arg,
+            seed=seed,
+            dry_run=dry_run,
+            output_dir=output_dir,
+            min_evidence=min_evidence,
+            skip_numeric_titles=skip_numeric_titles,
+        )
+    else:
+        result = build_wiki(
+            path,
+            provider=provider_arg,
+            seed=seed,
+            dry_run=dry_run,
+            output_dir=output_dir,
+            min_evidence=min_evidence,
+            skip_numeric_titles=skip_numeric_titles,
+            taxonomy=taxonomy_cfg,
+        )
     if as_json:
         click.echo(json.dumps({
             "project_root": str(result.project_root),
@@ -462,6 +487,15 @@ def wiki_taxonomy_group() -> None:
     help="PRD 文档 ID（kb/ 下的目录名）。不指定时自动检测含 'PRD' 的文档。",
 )
 @click.option(
+    "--pes-glob",
+    "pes_glob",
+    default=None,
+    help=(
+        "PES 文档名 glob（v0.9.0）。指定时生成分层 v2 taxonomy "
+        "(system/subsystem/part/function)；不指定保持 v0.7 行为 (v1, 2 层)。"
+    ),
+)
+@click.option(
     "--out",
     "out_path",
     type=click.Path(dir_okay=False, path_type=Path),
@@ -473,13 +507,19 @@ def wiki_taxonomy_generate(
     path: Path,
     output_dir: Path | None,
     prd_doc_id: str | None,
+    pes_glob: str | None,
     out_path: Path | None,
     as_json: bool,
 ) -> None:
-    """从 PRD 文档结构自动生成 taxonomy.json (v0.7.0)。"""
+    """从 PRD 文档结构自动生成 taxonomy.json (v0.7.0+v0.9.0)。"""
     from .layout import kb_dir as _kb_dir
     from .layout import wiki_dir as _wiki_dir
-    from .wiki.taxonomy import generate_taxonomy, save_taxonomy
+    from .wiki.taxonomy import (
+        generate_taxonomy,
+        generate_taxonomy_v2,
+        save_taxonomy,
+        save_taxonomy_v2,
+    )
 
     if output_dir is not None:
         output_dir = output_dir.resolve()
@@ -488,35 +528,54 @@ def wiki_taxonomy_generate(
     if not kb_root.is_dir():
         raise click.UsageError(f"kb/ 目录不存在: {kb_root}")
 
-    cfg = generate_taxonomy(kb_root, prd_doc_id=prd_doc_id)
+    is_v2 = pes_glob is not None
+    if is_v2:
+        cfg_v2 = generate_taxonomy_v2(
+            kb_root, prd_doc_id=prd_doc_id, pes_glob=pes_glob,
+        )
+        source_prd = cfg_v2.source_prd
+        category_count = len(cfg_v2.categories)
+        category_slugs = [c.slug for c in cfg_v2.categories]
+    else:
+        cfg = generate_taxonomy(kb_root, prd_doc_id=prd_doc_id)
+        source_prd = cfg.source_prd
+        category_count = len(cfg.categories)
+        category_slugs = [c.slug for c in cfg.categories]
 
     if out_path is None:
         wiki_root = _wiki_dir(path, output_dir)
         wiki_root.mkdir(parents=True, exist_ok=True)
         out_path = wiki_root / "taxonomy.json"
 
-    save_taxonomy(cfg, out_path)
+    if is_v2:
+        save_taxonomy_v2(cfg_v2, out_path)
+    else:
+        save_taxonomy(cfg, out_path)
 
     if as_json:
         click.echo(json.dumps({
             "ok": True,
             "out": str(out_path),
-            "source_prd": cfg.source_prd,
-            "category_count": len(cfg.categories),
-            "categories": [c.slug for c in cfg.categories],
+            "schema_version": 2 if is_v2 else 1,
+            "source_prd": source_prd,
+            "source_pes_glob": pes_glob,
+            "category_count": category_count,
+            "categories": category_slugs,
         }, indent=2, sort_keys=True))
     else:
         click.echo(
-            f"wiki taxonomy generate: categories={len(cfg.categories)} "
-            f"source_prd={cfg.source_prd} -> {out_path}"
+            f"wiki taxonomy generate (v{'2' if is_v2 else '1'}): "
+            f"categories={category_count} "
+            f"source_prd={source_prd} -> {out_path}"
         )
     _record_history(
         path, "wiki taxonomy generate",
         {"prd_doc_id": prd_doc_id,
+         "pes_glob": pes_glob,
          "out": str(out_path),
          "output_dir": str(output_dir) if output_dir else None},
         0,
-        f"categories={len(cfg.categories)}",
+        f"categories={category_count}",
     )
 
 

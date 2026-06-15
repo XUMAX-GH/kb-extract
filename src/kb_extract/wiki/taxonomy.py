@@ -843,7 +843,14 @@ def generate_taxonomy_v2(
                     }
                 # Mount the same part separately under each owner subsystem
                 for sys_slug, sub_slug in owners:
-                    parts = system_nodes[sys_slug]["subsystems"][sub_slug]["parts"]
+                    sub_dict = system_nodes[sys_slug]["subsystems"][sub_slug]
+                    # Record the PES doc as an exact-match linked spec so
+                    # build_pes_section_map_v2 can later find it.
+                    existing = list(sub_dict["linked_specs"])
+                    if pes_doc not in existing:
+                        existing.append(pes_doc)
+                        sub_dict["linked_specs"] = tuple(existing)
+                    parts = sub_dict["parts"]
                     if part_slug not in parts:
                         parts[part_slug] = {
                             "slug": part_slug, "title": h1_title, "layer": "part",
