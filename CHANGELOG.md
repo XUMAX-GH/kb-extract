@@ -5,7 +5,34 @@
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
 版本号遵循 [语义化版本 2.0.0](https://semver.org/lang/zh-CN/)。
 
-## [0.9.0] — 2026-06-15
+## [0.10.0] — 2026-06-22
+
+**PRD 目录（Table of Contents）驱动的层级**：当 PRD 的 PDF 抽取导致正文
+标题退化（章节号 "## 2" / "## 3" 保留，但标题文字 "PRODUCT OVERVIEW" /
+"MECHANICAL" 丢失）时，v2 用正文标题构建的树会得到一堆以纯数字命名的垃圾
+子系统。本版本改为从 PRD 的 "Contents" 目录页解析干净的编号层级，再用
+章节号作为连接键，把正文证据回填到这棵树上。同时增强关键词回退路由：
+按 section 标题、再按文档标题逐层下钻到最匹配的节点，让没有目录映射的
+规格文档也能落到对应的子系统 / part / function。
+
+### Added
+- `parse_prd_toc(main_md)`：解析 PRD "Contents" 目录页，得到有序的
+  `(number, title, depth)` 列表，自动跳过页眉 / 页码 / 点线引导符等噪声。
+- `generate_taxonomy_v2(..., from_toc=True)`：从目录构建 4 层树，每个节点
+  把自己的章节号存入 `prd_headings`，顺序即目录阅读顺序（确定性、不重排）。
+- `is_toc_taxonomy(config)`：检测 taxonomy 是否为目录模式（子系统的
+  `prd_headings` 为纯章节号）。
+- `build_prd_toc_section_map_v2(...)`：从树重建 `{章节号: 路径}`，再把 PRD
+  正文锚点按章节号路由进树；缺失的章节号回滚到最近的祖先节点。
+- CLI `kb wiki taxonomy generate` 新增 `--from-toc` 开关。
+- 关键词回退现在会下钻到关键词重叠最多的最深节点；section 标题无信号时，
+  再用文档标题（如 "M9000006 Keyset Backlight LED Test"）整篇路由。
+
+### Changed
+- `route_evidence_v2` 的关键词回退由"只命中顶层 system"升级为"下钻到最深
+  匹配节点"，并新增文档标题回退（优先级低于 section 标题）。
+
+
 
 **分层 Wiki 知识库（Taxonomy v2）**：把 wiki 的扁平 1 层分类升级为 4 层
 树（system → subsystem → part → function），完整反映 PRD + PES 文档的

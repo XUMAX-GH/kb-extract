@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml/badge.svg)](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.9.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.10.0-blue.svg)](CHANGELOG.md)
 
 ---
 
@@ -69,7 +69,7 @@ cd kb-extract
 完成后运行：
 
 ```bash
-kb --version          # 0.9.0
+kb --version          # 0.10.0
 kb adapters           # 列出 5 个内置适配器（4 个 v2 + 1 个 image）
 ```
 
@@ -312,12 +312,50 @@ wiki/
 ### 路由优先级（最长前缀匹配）
 
 ```
-PRD anchor map  >  PES anchor map  >  subsystem linked_specs  >  keyword fallback  >  _uncategorized
+PRD anchor map  >  PES anchor map  >  subsystem linked_specs
+  >  section 标题关键词（下钻到最深匹配节点）
+  >  文档标题关键词（整篇规格文档按标题路由）
+  >  _uncategorized
 ```
 
 deepest-matchable 优先：能匹配到 function 就不会停在 part；
 跨 PES 同名零件（e.g. Audio/Speaker/Tweeter vs Notification/Speaker/Tweeter）
 不会被合并。
+
+### 从 PRD 目录（TOC）构建层级（v0.10.0，`--from-toc`）
+
+真实的 Microsoft PRD 用 PDF 抽取时，正文标题常会**退化**：章节号
+（`## 2`、`## 3`、`## TX`）保留，但标题文字（`PRODUCT OVERVIEW`、
+`MECHANICAL`）丢失。此时用正文标题建树会得到一堆以纯数字命名的垃圾子系统。
+
+干净的编号层级其实只存在于 PRD 的 **"Contents"（目录）页**：
+
+```
+3            -> MECHANICAL            （subsystem，depth 1）
+3.1          -> INDUSTRIAL DESIGN     （part，     depth 2）
+3.2.1        -> RETRACTABLE HINGE     （function， depth 3）
+```
+
+`--from-toc` 会解析目录页得到干净的编号树，再用**章节号作为连接键**把正文
+证据回填进去（正文节点的标题就是同一个章节号）。缺失的章节号回滚到最近的
+祖先节点；非 PRD 的规格文档则通过 section 标题 / 文档标题关键词下钻路由。
+
+```bash
+# 用 PRD 目录页构建 4 层层级（替代 --pes-glob 的正文建树）
+kb wiki taxonomy generate ./MyProject \
+    --prd-doc "BC PRD Rev B" \
+    --from-toc \
+    --out ./MyProject/wiki/taxonomy.json
+
+# 后续 build / verify 与上面完全一致
+kb wiki build ./MyProject --taxonomy ./MyProject/wiki/taxonomy.json \
+    --provider mock --seed 0
+kb wiki verify ./MyProject
+```
+
+什么时候用哪个：正文标题干净 -> 用 `--pes-glob`；正文标题退化、但目录页
+完整 -> 用 `--from-toc`。两者输出的 taxonomy.json schema 一致，后续流程不变。
+
 
 ### 设计原则与不变量
 

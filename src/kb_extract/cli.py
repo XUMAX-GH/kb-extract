@@ -502,6 +502,16 @@ def wiki_taxonomy_group() -> None:
     default=None,
     help="taxonomy.json 输出路径（默认: <project>/wiki/taxonomy.json）。",
 )
+@click.option(
+    "--from-toc",
+    "from_toc",
+    is_flag=True,
+    help=(
+        "从 PRD 的目录页(Contents/TOC)按章节号深度生成分层 v2 taxonomy "
+        "(v0.10.0)。适用于正文标题退化（只剩章节号）的 PDF；生成 "
+        "system/subsystem/part/function 四层结构。"
+    ),
+)
 @click.option("--json", "as_json", is_flag=True, help="JSON 输出。")
 def wiki_taxonomy_generate(
     path: Path,
@@ -509,9 +519,10 @@ def wiki_taxonomy_generate(
     prd_doc_id: str | None,
     pes_glob: str | None,
     out_path: Path | None,
+    from_toc: bool,
     as_json: bool,
 ) -> None:
-    """从 PRD 文档结构自动生成 taxonomy.json (v0.7.0+v0.9.0)。"""
+    """从 PRD 文档结构自动生成 taxonomy.json (v0.7.0+v0.9.0+v0.10.0)。"""
     from .layout import kb_dir as _kb_dir
     from .layout import wiki_dir as _wiki_dir
     from .wiki.taxonomy import (
@@ -528,10 +539,11 @@ def wiki_taxonomy_generate(
     if not kb_root.is_dir():
         raise click.UsageError(f"kb/ 目录不存在: {kb_root}")
 
-    is_v2 = pes_glob is not None
+    is_v2 = pes_glob is not None or from_toc
     if is_v2:
         cfg_v2 = generate_taxonomy_v2(
             kb_root, prd_doc_id=prd_doc_id, pes_glob=pes_glob,
+            from_toc=from_toc,
         )
         source_prd = cfg_v2.source_prd
         category_count = len(cfg_v2.categories)
