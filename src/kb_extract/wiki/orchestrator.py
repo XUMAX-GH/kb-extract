@@ -763,7 +763,7 @@ def build_wiki_v2(
 
     # 5. Recursive _index.md generation
     _write_v2_indices(wiki_root, taxonomy, final_topics, final_paths,
-                      titles_by_path)
+                      titles_by_path, provider_name)
 
     # 6. Serialize index.json (taxonomy_mode + v2 paths)
     sha_map = _load_source_sha256_map(project_root, output_dir)
@@ -805,6 +805,7 @@ def _write_v2_indices(
     final_topics: list,
     final_paths: list[tuple[str, ...]],
     titles_by_path: dict[tuple[str, ...], str],
+    provider_name: str,
 ) -> None:
     """Write recursive _index.md at every level (root + each taxonomy node).
 
@@ -821,7 +822,7 @@ def _write_v2_indices(
     root_lines = [
         f"# {taxonomy.source_prd} — 知识库",
         "",
-        f"> 自动生成 (provider=mock, source_pes_glob={taxonomy.source_pes_glob!r})",
+        f"> 自动生成 (provider={provider_name}, source_pes_glob={taxonomy.source_pes_glob!r})",
         "",
         "## 系统列表",
         "",
