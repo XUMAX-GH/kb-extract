@@ -210,3 +210,30 @@ def test_root_index_lists_all_systems(tmp_path: Path) -> None:
     assert "Electrical" in root_idx
     # Links to child folders
     assert "audio/_index.md" in root_idx or "(audio/" in root_idx
+
+
+def test_root_index_reports_actual_provider(tmp_path: Path) -> None:
+    """The v2 root _index.md header must reflect the provider actually used,
+    not a hardcoded value (regression: header was always 'provider=mock')."""
+    project, kb_root = _build_scene(tmp_path)
+    cfg = generate_taxonomy_v2(kb_root, prd_doc_id="BC PRD",
+                               pes_glob="M*")
+    build_wiki_v2(project, taxonomy=cfg, provider="mock", seed=0)
+    root_idx = (project / "wiki" / "_index.md").read_text(encoding="utf-8")
+    assert "provider=mock" in root_idx
+
+    # A different provider must surface in the header rather than 'mock'.
+    project2, kb_root2 = _build_scene(tmp_path / "p2")
+    cfg2 = generate_taxonomy_v2(kb_root2, prd_doc_id="BC PRD",
+                                pes_glob="M*")
+
+    class _NamedClient:
+        name = "cached"
+
+        def chat(self, messages: list) -> str:
+            return "body [^ev-1]"
+
+    build_wiki_v2(project2, taxonomy=cfg2, provider=_NamedClient(), seed=0)
+    root_idx2 = (project2 / "wiki" / "_index.md").read_text(encoding="utf-8")
+    assert "provider=cached" in root_idx2
+    assert "provider=mock" not in root_idx2
