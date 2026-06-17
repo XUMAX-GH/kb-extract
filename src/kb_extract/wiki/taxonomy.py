@@ -704,6 +704,7 @@ def generate_taxonomy_v2(
     *,
     prd_doc_id: str | None = None,
     pes_glob: str | None = None,
+    from_toc: bool = False,
 ) -> TaxonomyConfigV2:
     """Auto-generate a hierarchical TaxonomyConfigV2 (system -> ... -> function).
 
@@ -713,8 +714,15 @@ def generate_taxonomy_v2(
     PES H1 entries become ``part`` nodes, PES H2 entries become
     ``function`` nodes.
 
+    When ``from_toc`` is True, the full system -> subsystem -> part ->
+    function tree is derived from the PRD's numbered Table of Contents
+    instead of the (often degraded) body headings. Each node stores its
+    section number in ``prd_headings`` so body anchors can be routed back
+    by ``build_prd_toc_section_map_v2``.
+
     Same-name parts under different subsystems are kept separate.
-    Deterministic: children are sorted by slug at every layer.
+    Deterministic: heading mode sorts children by slug; TOC mode preserves
+    document (TOC) order.
     """
     kb_root = Path(kb_root)
     if prd_doc_id is None:
@@ -732,6 +740,22 @@ def generate_taxonomy_v2(
     root = json.loads(index_path.read_text(encoding="utf-8"))
     main_md = (prd_dir / "main.md").read_text(encoding="utf-8") \
         if (prd_dir / "main.md").is_file() else ""
+
+    if from_toc:
+        top = [c for c in root.get("children", []) if isinstance(c, dict)]
+        system_title = next(
+            (str(c.get("title", "")).strip() for c in top
+             if str(c.get("title", "")).strip()),
+            prd_doc_id,
+        )
+        entries = parse_prd_toc(main_md)
+        categories = _build_toc_tree(system_title, entries)
+        cfg = TaxonomyConfigV2(
+            version=2, source_prd=prd_doc_id,
+            source_pes_glob=pes_glob, categories=categories,
+        )
+        validate_taxonomy_v2(cfg)
+        return cfg
 
     top_children = [c for c in root.get("children", []) if isinstance(c, dict)]
 
@@ -928,28 +952,35 @@ def _find_path_to_subsystem_by_linked_spec(
     return ()
 
 
-def _keyword_match_top_level(
+def _keyword_match_path(
     cfg: TaxonomyConfigV2, section_title: str,
 ) -> tuple[str, ...]:
+    """Route by keyword overlap to the *deepest* matching node.
+
+    Pre-order traversal updates the winner only on a *strictly greater*
+    overlap, so a parent is preferred over a child with equal overlap and a
+    deeper node is chosen only when it matches more keywords. This keeps the
+    top-level behaviour for systems whose subtree has no extra keywords while
+    letting specific spec sections land next to the relevant part/function.
+    """
     tokens = _tokenize(section_title)
     if not tokens:
         return ()
-    best_slug = ""
+    best_path: tuple[str, ...] = ()
     best_count = 0
-    for sys_node in cfg.categories:
-        # Aggregate keywords across the whole subtree of this system
-        kws = set(_keyword_tokens(sys_node.keywords))
-        for sub in sys_node.children:
-            kws |= _keyword_tokens(sub.keywords)
-            for part in sub.children:
-                kws |= _keyword_tokens(part.keywords)
-                for fn in part.children:
-                    kws |= _keyword_tokens(fn.keywords)
-        overlap = len(tokens & kws)
+
+    def _walk(node: CategoryNode, path: tuple[str, ...]) -> None:
+        nonlocal best_path, best_count
+        overlap = len(tokens & _keyword_tokens(node.keywords))
         if overlap > best_count:
             best_count = overlap
-            best_slug = sys_node.slug
-    return (best_slug,) if best_count > 0 else ()
+            best_path = path
+        for child in node.children:
+            _walk(child, (*path, child.slug))
+
+    for sys_node in cfg.categories:
+        _walk(sys_node, (sys_node.slug,))
+    return best_path if best_count > 0 else ()
 
 
 def route_evidence_v2(
@@ -964,8 +995,9 @@ def route_evidence_v2(
       1. PRD anchor map (when doc_id matches config.source_prd)
       2. PES anchor map (when (doc_id, anchor) appears)
       3. Subsystem ``linked_specs`` pattern matches ``doc_id``
-      4. Keyword overlap with section_title (resolves to top-level system)
-      5. Fallback to ``('_uncategorized',)``
+      4. Keyword overlap with section_title (deepest matching node)
+      5. Keyword overlap with the doc_id/title (deepest matching node)
+      6. Fallback to ``('_uncategorized',)``
     """
     # 1. PRD anchor map
     if _normalize_doc_id(ev.doc_id) == _normalize_doc_id(config.source_prd):
@@ -982,8 +1014,15 @@ def route_evidence_v2(
         if path:
             return path
 
-    # 4. Keyword fallback (top-level system)
-    path = _keyword_match_top_level(config, ev.section_title)
+    # 4. Keyword fallback (deepest matching node) using the section title
+    path = _keyword_match_path(config, ev.section_title)
+    if path:
+        return path
+
+    # 5. Doc-title keyword fallback: route a whole spec doc by its descriptive
+    #    title (e.g. "M9000006 Keyset Backlight LED Test") when the section
+    #    title itself carries no signal (degraded numeric headings, boilerplate).
+    path = _keyword_match_path(config, ev.doc_id)
     if path:
         return path
 
@@ -1115,4 +1154,239 @@ def build_pes_section_map_v2(
                         anchor = str(h2.get("anchor", "")).strip()
                         if anchor:
                             result[(d.name, anchor)] = (*part_path, fn_slug)
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Table-of-Contents driven hierarchy (v0.10.0)
+#
+# Real Microsoft PRDs extract with degraded body headings: section numbers
+# survive ("## 2", "## 3.2") but the title text is lost. The clean numbered
+# hierarchy lives only in the "Contents" page, where each entry is a bare
+# section-number line followed by a "TITLE .... dotted leader .... PAGE" line.
+# We parse that TOC into the full system -> subsystem -> part -> function tree
+# and route body anchors back into it by matching their section number.
+# ---------------------------------------------------------------------------
+
+_TOC_NUMBER_RE = re.compile(r"^\d+(?:\.\d+)*$")
+_TOC_LEADER_RE = re.compile(r"\s*\.{2,}.*$")
+_TOC_NOISE_RE = re.compile(
+    r"^(?:!\["
+    r"|page\s+\d+\s+of\b"
+    r"|microsoft\s+confidential\b"
+    r"|\d+/\d+/\d+$"
+    r"|m\d+\s+rev\b"
+    r"|product\s+requirement\s+document$"
+    r"|contents$)",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class TocEntry:
+    """One numbered entry from a PRD Table of Contents."""
+    number: str  # e.g. "3.2.1"
+    title: str   # e.g. "RETRACTABLE HINGE"
+    depth: int   # number of dot-separated components (1, 2, 3, ...)
+
+
+def _is_toc_noise(line: str) -> bool:
+    return bool(_TOC_NOISE_RE.match(line.strip()))
+
+
+def parse_prd_toc(main_md: str) -> tuple[TocEntry, ...]:
+    """Parse the PRD 'Contents' page into ordered TOC entries.
+
+    Locates the 'Contents' heading, then pairs each bare section-number line
+    with the following title line (stripping the dotted leader + page
+    number). Running-header / page-number noise is skipped. Scanning stops
+    at the next markdown heading (where the document body begins).
+    """
+    lines = main_md.splitlines()
+    start: int | None = None
+    for i, raw in enumerate(lines):
+        s = raw.strip()
+        if s.startswith("#") and s.lstrip("#").strip().lower() == "contents":
+            start = i + 1
+            break
+    if start is None:
+        return ()
+
+    entries: list[TocEntry] = []
+    n = len(lines)
+    i = start
+    while i < n:
+        s = lines[i].strip()
+        if s.startswith("#"):
+            break
+        if _TOC_NUMBER_RE.match(s):
+            number = s
+            title = ""
+            j = i + 1
+            while j < n:
+                t = lines[j].strip()
+                if t.startswith("#"):
+                    break
+                if not t or _TOC_NUMBER_RE.match(t) or _is_toc_noise(t):
+                    j += 1
+                    continue
+                title = _TOC_LEADER_RE.sub("", t).strip()
+                title = re.sub(r"\s+\d+$", "", title).strip()
+                break
+            if title:
+                entries.append(
+                    TocEntry(number=number, title=title,
+                             depth=number.count(".") + 1),
+                )
+                i = j + 1
+                continue
+        i += 1
+    return tuple(entries)
+
+
+def _build_toc_tree(
+    system_title: str, entries: tuple[TocEntry, ...],
+) -> tuple[CategoryNode, ...]:
+    """Materialize TOC entries into a single-system CategoryNode tree.
+
+    depth 1 -> subsystem, 2 -> part, 3 -> function. Entries deeper than
+    function are dropped (their body anchors roll up via the router).
+    Order follows the TOC (deterministic); slugs are de-duplicated per
+    parent.
+    """
+    system_slug = _slugify(system_title)
+    nodes: dict[str, dict] = {}
+    roots: list[dict] = []
+    root_used: set[str] = set()
+
+    for e in entries:
+        if e.depth < 1 or e.depth > 3:
+            continue
+        layer = _VALID_LAYERS[e.depth]
+
+        parent: dict | None = None
+        if "." in e.number:
+            pn = e.number.rsplit(".", 1)[0]
+            while True:
+                if pn in nodes:
+                    parent = nodes[pn]
+                    break
+                if "." not in pn:
+                    break
+                pn = pn.rsplit(".", 1)[0]
+            if parent is None:
+                # Orphan deeper entry with no representable parent: skip.
+                continue
+
+        used = parent["used"] if parent is not None else root_used
+        base = _slugify(e.title)
+        slug = base
+        k = 2
+        while slug in used:
+            slug = f"{base}-{k}"
+            k += 1
+        used.add(slug)
+
+        node = {
+            "slug": slug, "title": e.title, "layer": layer,
+            "number": e.number, "children": [], "used": set(),
+        }
+        nodes[e.number] = node
+        if parent is not None:
+            parent["children"].append(node)
+        else:
+            roots.append(node)
+
+    def _to_node(d: dict) -> CategoryNode:
+        return CategoryNode(
+            slug=d["slug"], title=d["title"], layer=d["layer"],
+            prd_headings=(d["number"],),
+            keywords=tuple(sorted(_tokenize(d["title"]))),
+            children=tuple(_to_node(c) for c in d["children"]),
+        )
+
+    system = CategoryNode(
+        slug=system_slug, title=system_title, layer="system",
+        prd_headings=(system_title,),
+        keywords=tuple(sorted(_tokenize(system_title))),
+        children=tuple(_to_node(r) for r in roots),
+    )
+    return (system,)
+
+
+def is_toc_taxonomy(config: TaxonomyConfigV2) -> bool:
+    """True when the taxonomy was built from a numbered TOC.
+
+    Detected by subsystem ``prd_headings`` being bare section numbers
+    (e.g. ``"3"``) rather than title text.
+    """
+    for sys_node in config.categories:
+        for sub in sys_node.children:
+            for ph in sub.prd_headings:
+                if _TOC_NUMBER_RE.match(ph):
+                    return True
+    return False
+
+
+def build_prd_toc_section_map_v2(
+    kb_root: Path,
+    config: TaxonomyConfigV2,
+) -> dict[str, tuple[str, ...]]:
+    """Build PRD anchor -> category path for a TOC-derived taxonomy.
+
+    Walks the taxonomy to build a ``section_number -> path`` index, then
+    walks the PRD ``index.json`` body and maps each anchor by its section
+    number (the degraded body heading). When an exact number is absent the
+    lookup rolls up to the nearest ancestor present in the tree; non-numeric
+    body headings (front matter, noise) fall back to the system root.
+    """
+    kb_root = Path(kb_root)
+    prd_dir = _resolve_child_casefold(kb_root, config.source_prd)
+    if prd_dir is None:
+        return {}
+    prd_index = prd_dir / "index.json"
+    if not prd_index.is_file():
+        return {}
+    root = json.loads(prd_index.read_text(encoding="utf-8"))
+
+    num_to_path: dict[str, tuple[str, ...]] = {}
+
+    def _walk_cat(node: CategoryNode, path: tuple[str, ...]) -> None:
+        for ph in node.prd_headings:
+            if _TOC_NUMBER_RE.match(ph):
+                num_to_path[ph] = path
+        for child in node.children:
+            _walk_cat(child, (*path, child.slug))
+
+    for sys_node in config.categories:
+        _walk_cat(sys_node, (sys_node.slug,))
+
+    default: tuple[str, ...] = (
+        (config.categories[0].slug,) if config.categories else ("_uncategorized",)
+    )
+
+    def _lookup(number: str) -> tuple[str, ...]:
+        num = number
+        while True:
+            if num in num_to_path:
+                return num_to_path[num]
+            if "." not in num:
+                return default
+            num = num.rsplit(".", 1)[0]
+
+    result: dict[str, tuple[str, ...]] = {}
+
+    def _walk_body(node: dict) -> None:
+        anchor = str(node.get("anchor", "")).strip()
+        title = str(node.get("title", "")).strip()
+        if anchor:
+            result[anchor] = _lookup(title) if _TOC_NUMBER_RE.match(title) \
+                else default
+        for child in node.get("children", []) or []:
+            if isinstance(child, dict):
+                _walk_body(child)
+
+    for child in root.get("children", []) or []:
+        if isinstance(child, dict):
+            _walk_body(child)
     return result

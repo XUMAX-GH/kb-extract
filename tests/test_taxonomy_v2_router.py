@@ -144,3 +144,81 @@ def test_path_always_valid_in_tree() -> None:
         match = next((n for n in nodes if n.slug == slug), None)
         assert match is not None, f"path {path} broken at {slug}"
         nodes = match.children
+
+
+def test_keyword_fallback_descends_to_deepest_matching_node() -> None:
+    """Keyword fallback routes to the deepest node whose keywords overlap."""
+    cfg = TaxonomyConfigV2(
+        version=2, source_prd="BC PRD", source_pes_glob="M*",
+        categories=(
+            CategoryNode(
+                slug="subsystems", title="Subsystems", layer="system",
+                prd_headings=("Subsystems",), keywords=("subsystems",),
+                children=(
+                    CategoryNode(
+                        slug="backlight", title="Backlight", layer="subsystem",
+                        prd_headings=("Backlight",), keywords=("backlight",),
+                    ),
+                ),
+            ),
+        ),
+    )
+    result = route_evidence_v2(
+        _ev("M2222222 Backlight Spec", "a1",
+            section_title="Backlight Brightness Uniformity"),
+        cfg, {}, {},
+    )
+    assert result == ("subsystems", "backlight")
+
+
+def test_doc_title_keyword_fallback_routes_whole_spec_doc() -> None:
+    """When section_title has no signal, the doc title routes the evidence."""
+    cfg = TaxonomyConfigV2(
+        version=2, source_prd="BC PRD", source_pes_glob="M*",
+        categories=(
+            CategoryNode(
+                slug="subsystems", title="Subsystems", layer="system",
+                prd_headings=("Subsystems",), keywords=("subsystems",),
+                children=(
+                    CategoryNode(
+                        slug="backlight", title="Backlight", layer="subsystem",
+                        prd_headings=("Backlight",), keywords=("backlight",),
+                    ),
+                ),
+            ),
+        ),
+    )
+    # section_title is a bare degraded number -> no overlap; doc title wins
+    result = route_evidence_v2(
+        _ev("M9000006 Keyset Backlight LED Test", "a1", section_title="3.2"),
+        cfg, {}, {},
+    )
+    assert result == ("subsystems", "backlight")
+
+
+def test_section_title_keyword_beats_doc_title_keyword() -> None:
+    """A specific section title outranks the broader doc title."""
+    cfg = TaxonomyConfigV2(
+        version=2, source_prd="BC PRD", source_pes_glob="M*",
+        categories=(
+            CategoryNode(
+                slug="subsystems", title="Subsystems", layer="system",
+                keywords=("subsystems",),
+                children=(
+                    CategoryNode(
+                        slug="backlight", title="Backlight", layer="subsystem",
+                        keywords=("backlight",),
+                    ),
+                    CategoryNode(
+                        slug="touchpad", title="Touchpad", layer="subsystem",
+                        keywords=("touchpad",),
+                    ),
+                ),
+            ),
+        ),
+    )
+    result = route_evidence_v2(
+        _ev("Backlight Spec", "a1", section_title="Touchpad Force"),
+        cfg, {}, {},
+    )
+    assert result == ("subsystems", "touchpad")

@@ -27,6 +27,8 @@ from .taxonomy import (
     build_pes_section_map_v2,
     build_prd_section_map,
     build_prd_section_map_v2,
+    build_prd_toc_section_map_v2,
+    is_toc_taxonomy,
     route_evidence,
     route_evidence_v2,
 )
@@ -640,7 +642,10 @@ def build_wiki_v2(
         all_evidence.extend(ev for ev, _ in pairs)
 
     # 2. Build PRD + PES section maps, route each evidence
-    prd_map = build_prd_section_map_v2(kb_root, taxonomy)
+    if is_toc_taxonomy(taxonomy):
+        prd_map = build_prd_toc_section_map_v2(kb_root, taxonomy)
+    else:
+        prd_map = build_prd_section_map_v2(kb_root, taxonomy)
     pes_map = build_pes_section_map_v2(kb_root, taxonomy)
 
     path_evidence: dict[tuple[str, ...], list[EvidenceRef]] = defaultdict(list)
