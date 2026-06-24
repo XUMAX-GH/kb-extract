@@ -1,9 +1,14 @@
+import hashlib
+import json
+import zipfile
 from pathlib import Path
 
 import pytest
 
+from kb_extract.adapters.base import Registry
 from kb_extract.contracts import AssetRef, ExtractionMeta, ExtractionResult, SectionNode
 from kb_extract.errors import RedactionPolicyError
+from kb_extract.orchestrator import run
 from kb_extract.redaction import (
     RedactionPolicy,
     RedactionStats,
@@ -172,3 +177,178 @@ def test_serialize_redaction_json_counts_only_sorted_keys():
     # only the three known keys exist (no leaked source values)
     import json as _json
     assert set(_json.loads(out).keys()) == {"logos_dropped", "pn_redacted", "policy_sha256"}
+
+
+class _RedactTestAdapter:
+    name = "_redact"
+    version = "0.1"
+    extensions = (".rdt",)
+
+    def extract(self, src, out_dir_tmp):
+        assets_dir = out_dir_tmp / "assets"
+        assets_dir.mkdir(exist_ok=True)
+        (assets_dir / "logo_1.png").write_bytes(b"\x89PNG\r\n\x1a\n" + b"0" * 64)
+        sha = hashlib.sha256((assets_dir / "logo_1.png").read_bytes()).hexdigest()
+        md = (
+            '<!-- generated -->\n\n'
+            '<a id="sec-0001"></a>\n'
+            '# Doc\n\n'
+            'Part M1320001 is secret.\n\n'
+            '![company logo](assets/logo_1.png)\n'
+        )
+        root = SectionNode(
+            node_id="0000", title="Root", level=0, page_start=1, page_end=1,
+            anchor="", language="und",
+            children=(SectionNode(
+                node_id="0001", title="Doc", level=1, page_start=1, page_end=1,
+                anchor="sec-0001", language="und",
+            ),),
+        )
+        assets = (AssetRef(kind="image", rel_path="assets/logo_1.png", page=1, sha256=sha, alt="company logo"),)
+        meta = ExtractionMeta(
+            source_path=src.as_posix(),
+            source_sha256=hashlib.sha256(src.read_bytes()).hexdigest(),
+            source_bytes=src.stat().st_size,
+            source_mtime_iso="t",
+            adapter_name=self.name,
+            adapter_version=self.version,
+            tool_versions={},
+            extracted_at_iso="t",
+            outline_source="bookmark",
+            status="ok",
+        )
+        return ExtractionResult(markdown=md, index=root, tables=(), assets=assets, meta=meta)
+
+
+def _project_with_policy(tmp_path, policy_body):
+    project = tmp_path / "P"
+    project.mkdir()
+    (project / "doc.rdt").write_bytes(b"x")
+    (project / "redaction.toml").write_text(policy_body, encoding="utf-8")
+    return project
+
+
+POLICY = (
+    '[redaction]\nenabled = true\n'
+    '[[redaction.text]]\n'
+    "pattern = '(?i)\\b[MH]\\d{6,8}\\b'\n"
+    'replacement = "[PN-REDACTED]"\n'
+    '[redaction.logos]\nfilename_globs = ["*logo*"]\n'
+)
+
+
+def test_run_applies_redaction_and_writes_sidecar(tmp_path):
+    project = _project_with_policy(tmp_path, POLICY)
+    reg = Registry()
+    reg.register(_RedactTestAdapter())
+    report = run(project, registry=reg)
+    assert report.ok_count == 1
+    out = project / "kb" / "doc"
+    main_md = (out / "main.md").read_text(encoding="utf-8")
+    assert "M1320001" not in main_md
+    assert "[PN-REDACTED]" in main_md
+    assert "assets/logo_1.png" not in main_md
+    assert '<a id="sec-0001"></a>' in main_md
+    assert not (out / "assets" / "logo_1.png").exists()
+    sidecar = json.loads((out / "redaction.json").read_text(encoding="utf-8"))
+    assert sidecar["pn_redacted"] == 1
+    assert sidecar["logos_dropped"] == 1
+    assert len(sidecar["policy_sha256"]) == 64
+    assert report.pn_redacted == 1
+    assert report.logos_dropped == 1
+
+
+def test_run_without_policy_writes_no_sidecar(tmp_path):
+    project = tmp_path / "P"
+    project.mkdir()
+    (project / "doc.rdt").write_bytes(b"x")
+    reg = Registry()
+    reg.register(_RedactTestAdapter())
+    run(project, registry=reg)
+    out = project / "kb" / "doc"
+    assert "M1320001" in (out / "main.md").read_text(encoding="utf-8")
+    assert not (out / "redaction.json").exists()
+
+
+def test_run_reprocesses_when_policy_is_added_after_initial_extract(tmp_path):
+    project = tmp_path / "P"
+    project.mkdir()
+    (project / "doc.rdt").write_bytes(b"x")
+    reg = Registry()
+    reg.register(_RedactTestAdapter())
+    run(project, registry=reg)
+    (project / "redaction.toml").write_text(POLICY, encoding="utf-8")
+
+    report = run(project, registry=reg)
+
+    out = project / "kb" / "doc"
+    assert report.ok_count == 1
+    assert report.unchanged_count == 0
+    assert "M1320001" not in (out / "main.md").read_text(encoding="utf-8")
+    assert (out / "redaction.json").exists()
+
+
+def test_run_propagates_redaction_into_zip_children(tmp_path):
+    project = _project_with_policy(tmp_path, POLICY)
+    (project / "doc.rdt").unlink()
+    with zipfile.ZipFile(project / "bundle.zip", "w") as zf:
+        zf.writestr("doc.rdt", b"x")
+    reg = Registry()
+    reg.register(_RedactTestAdapter())
+
+    report = run(project, registry=reg)
+
+    child_out = project / "kb" / "bundle" / "_unpacked" / "kb" / "doc"
+    assert report.ok_count == 1
+    assert "M1320001" not in (child_out / "main.md").read_text(encoding="utf-8")
+    assert (child_out / "redaction.json").exists()
+
+
+def test_run_refreshes_zip_redaction_when_registry_is_reused(tmp_path):
+    project = tmp_path / "P"
+    project.mkdir()
+    with zipfile.ZipFile(project / "bundle.zip", "w") as zf:
+        zf.writestr("doc.rdt", b"x")
+    reg = Registry()
+    reg.register(_RedactTestAdapter())
+    run(project, registry=reg)
+    (project / "redaction.toml").write_text(POLICY, encoding="utf-8")
+
+    report = run(project, registry=reg)
+
+    child_out = project / "kb" / "bundle" / "_unpacked" / "kb" / "doc"
+    assert report.ok_count == 1
+    assert "M1320001" not in (child_out / "main.md").read_text(encoding="utf-8")
+    assert (child_out / "redaction.json").exists()
+
+
+def test_run_accumulates_zip_child_redaction_counts(tmp_path):
+    project = _project_with_policy(tmp_path, POLICY)
+    (project / "doc.rdt").unlink()
+    with zipfile.ZipFile(project / "bundle.zip", "w") as zf:
+        zf.writestr("doc.rdt", b"x")
+    reg = Registry()
+    reg.register(_RedactTestAdapter())
+
+    report = run(project, registry=reg)
+
+    assert report.pn_redacted == 1
+    assert report.logos_dropped == 1
+
+
+def test_run_does_not_enable_zip_embedded_policy_when_parent_has_no_policy(tmp_path):
+    project = tmp_path / "P"
+    project.mkdir()
+    with zipfile.ZipFile(project / "bundle.zip", "w") as zf:
+        zf.writestr("doc.rdt", b"x")
+        zf.writestr("redaction.toml", POLICY)
+    reg = Registry()
+    reg.register(_RedactTestAdapter())
+
+    report = run(project, registry=reg)
+
+    child_out = project / "kb" / "bundle" / "_unpacked" / "kb" / "doc"
+    assert report.pn_redacted == 0
+    assert report.logos_dropped == 0
+    assert "M1320001" in (child_out / "main.md").read_text(encoding="utf-8")
+    assert not (child_out / "redaction.json").exists()

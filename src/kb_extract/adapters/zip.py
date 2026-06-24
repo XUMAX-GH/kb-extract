@@ -20,11 +20,35 @@ class ZipAdapter:
     version = "0.1"
     extensions = (".zip",)
 
-    def __init__(self, child_registry=None, nest_depth: int = 0) -> None:
+    def __init__(
+        self,
+        child_registry=None,
+        nest_depth: int = 0,
+        redaction_policy: Path | None = None,
+        no_redaction: bool = False,
+    ) -> None:
         self._registry = child_registry
         self._depth = nest_depth
+        self._redaction_policy = redaction_policy
+        self._no_redaction = no_redaction
+        self._last_child_report = None
+
+    def configure_redaction(
+        self,
+        *,
+        redaction_policy: Path | None,
+        no_redaction: bool,
+    ) -> None:
+        self._redaction_policy = redaction_policy
+        self._no_redaction = no_redaction
+
+    def consume_child_report(self):
+        report = self._last_child_report
+        self._last_child_report = None
+        return report
 
     def extract(self, src: Path, out_dir_tmp: Path) -> ExtractionResult:
+        self._last_child_report = None
         warnings: list[str] = []
         children: list[SectionNode] = []
         sha = hashlib.sha256(src.read_bytes()).hexdigest()
@@ -68,8 +92,11 @@ class ZipAdapter:
         report = orch_run(
             unpacked,
             registry=self._registry,
+            redaction_policy=self._redaction_policy,
+            no_redaction=self._no_redaction,
             _nest_depth=self._depth + 1,
         )
+        self._last_child_report = report
 
         # Build aggregator section tree from child main.md files.
         kb_dir = unpacked / "kb"
