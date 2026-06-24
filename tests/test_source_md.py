@@ -119,10 +119,20 @@ def test_source_manifest_upsert_get_and_idempotency(tmp_path):
     assert row.source_sha256 == "a" * 64
     assert row.policy_sha256 == "c" * 64
     assert row.markitdown_version == "0.0.1"
+    m.upsert_ok(
+        src,
+        source_sha256="d" * 64, source_bytes=2, source_mtime_iso="t3",
+        markitdown_version="0.0.2", source_md_sha256="e" * 64,
+        images_stripped=3, pn_redacted=4, policy_sha256=None,
+        generated_at_iso="t4",
+    )
+    row = m.get(src)
+    assert row.source_sha256 == "d" * 64
+    assert row.policy_sha256 is None
+    assert row.markitdown_version == "0.0.2"
+    count = m.conn.execute("SELECT COUNT(*) FROM sources").fetchone()[0]
+    assert count == 1
     m.close()
-
-
-def test_source_manifest_mark_failed(tmp_path):
     db = tmp_path / "kb" / "source.manifest.sqlite"
     m = SourceManifest(db)
     src = tmp_path / "bad.docx"
