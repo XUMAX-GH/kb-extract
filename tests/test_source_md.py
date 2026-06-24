@@ -1,4 +1,6 @@
+import ast
 import json
+from pathlib import Path as _P
 
 from kb_extract import source_md
 from kb_extract import source_md as _sm
@@ -252,3 +254,36 @@ def test_run_source_dry_run_writes_nothing(monkeypatch, tmp_path):
     report = _sm.run_source(project, dry_run=True)
     assert not (project / "kb" / "a" / "source.md").exists()
     assert report.dry_run_count == 1
+
+
+def test_markitdown_imported_only_in_source_md():
+    src_root = _P("src/kb_extract")
+    offenders = []
+    for py in src_root.rglob("*.py"):
+        if py.name == "source_md.py":
+            continue
+        tree = ast.parse(py.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    if "markitdown" in alias.name:
+                        offenders.append(py.as_posix())
+                        break
+            elif isinstance(node, ast.ImportFrom) and node.module and "markitdown" in node.module:
+                offenders.append(py.as_posix())
+                break
+    assert offenders == [], f"markitdown imported outside source_md.py: {offenders}"
+
+
+def test_source_md_imports_no_llm_sdk():
+    import kb_extract.source_md as mod
+    tree = ast.parse(_P(mod.__file__).read_text(encoding="utf-8"))
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for n in node.names:
+                names.add(n.name)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.add(node.module)
+    forbidden = {"openai", "anthropic", "litellm", "langchain", "transformers"}
+    assert not (names & forbidden)

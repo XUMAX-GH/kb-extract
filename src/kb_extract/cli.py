@@ -23,6 +23,7 @@ from .adapters.base import get_default_registry
 from .layout import find_project_root, kb_dir
 from .manifest import Manifest
 from .orchestrator import run as orch_run
+from .source_md import run_source
 from .verify import verify_project
 
 
@@ -128,6 +129,75 @@ def extract(
         path, "extract",
         {"force": force, "dry_run": dry_run, "only": list(only),
          "output_dir": str(output_dir) if output_dir else None},
+        exit_code,
+        f"ok={report.ok_count} failed={report.failed_count}",
+    )
+    sys.exit(exit_code)
+
+
+@main.command(name="source")
+@click.argument("path", type=click.Path(exists=True, path_type=Path))
+@click.option("--force", is_flag=True, help="即使源文件 hash 未变也重新生成 source.md。")
+@click.option("--dry-run", is_flag=True, help="仅转换不写盘。")
+@click.option("--json", "as_json", is_flag=True, help="在标准输出打印 JSON 报告。")
+@click.option(
+    "--output-dir", "-o", "output_dir",
+    type=click.Path(file_okay=False, path_type=Path), default=None,
+    help="将 kb/ 写入此目录（而不是源所在目录）。",
+)
+@click.option(
+    "--redaction-policy", "redaction_policy",
+    type=click.Path(path_type=Path), default=None,
+    help="脱敏策略文件路径（默认自动发现项目根的 redaction.toml）。",
+)
+@click.option("--no-redaction", is_flag=True, help="即使发现 redaction.toml 也强制关闭脱敏。")
+def source(
+    path: Path,
+    force: bool,
+    dry_run: bool,
+    as_json: bool,
+    output_dir: Path | None,
+    redaction_policy: Path | None,
+    no_redaction: bool,
+) -> None:
+    """用 markitdown 为 PATH 下的文档生成可读的 source.md 源文件。"""
+    if output_dir is not None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_dir = output_dir.resolve()
+    report = run_source(
+        path,
+        output_dir=output_dir,
+        redaction_policy=redaction_policy,
+        no_redaction=no_redaction,
+        force=force,
+        dry_run=dry_run,
+    )
+    if as_json:
+        d = {
+            "ok_count": report.ok_count,
+            "failed_count": report.failed_count,
+            "skipped_count": report.skipped_count,
+            "unchanged_count": report.unchanged_count,
+            "dry_run_count": report.dry_run_count,
+            "pn_redacted": report.pn_redacted,
+            "images_stripped": report.images_stripped,
+            "overall_status": report.overall_status,
+            "output_dir": str(output_dir) if output_dir else None,
+        }
+        click.echo(json.dumps(d, indent=2, sort_keys=True))
+    else:
+        click.echo(
+            f"ok={report.ok_count} failed={report.failed_count} "
+            f"skipped={report.skipped_count} unchanged={report.unchanged_count} "
+            f"dry_run={report.dry_run_count} "
+            f"redacted_pn={report.pn_redacted} images_stripped={report.images_stripped}"
+        )
+    exit_code = 1 if report.failed_count else 0
+    _record_history(
+        path, "source",
+        {"force": force, "dry_run": dry_run,
+         "output_dir": str(output_dir) if output_dir else None,
+         "no_redaction": no_redaction},
         exit_code,
         f"ok={report.ok_count} failed={report.failed_count}",
     )

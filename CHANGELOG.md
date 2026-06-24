@@ -1,5 +1,16 @@
 # 更新日志
 
+## [0.12.0] - 2026-06-24
+
+### Added
+- `kb source` command (SP-2): converts each input file to a readable,
+  image-free, redacted `source.md` via the embedded markitdown library.
+  Output is normalized and byte-reproducible for a fixed markitdown version;
+  idempotency is tracked in a separate `kb/source.manifest.sqlite` with a
+  per-document counts-only `source.meta.json` sidecar. The deterministic
+  `kb extract` core and `kb verify` are untouched. markitdown is imported only
+  in `source_md.py`, preserving the adapter LLM-import invariant.
+
 ## [0.11.0] - 2026-06-24
 
 ### Added
