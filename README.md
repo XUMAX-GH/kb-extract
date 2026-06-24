@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml/badge.svg)](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.10.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.11.0-blue.svg)](CHANGELOG.md)
 
 ---
 
@@ -69,9 +69,40 @@ cd kb-extract
 完成后运行：
 
 ```bash
-kb --version          # 0.10.0
+kb --version          # 0.11.0
 kb adapters           # 列出 5 个内置适配器（4 个 v2 + 1 个 image）
 ```
+
+## 脱敏 / 隐私
+
+工程文档常含机密料号与公司 logo。在项目根放一份 `redaction.toml` 即可在
+**抽取产物落盘前**确定性脱敏（不破坏段落锚点，仍逐 byte 可复现）：
+
+```toml
+[redaction]
+enabled = true
+
+[[redaction.text]]
+pattern = '(?i)\b[MH]\d{6,8}\b'   # M132xxxx / H123xxxx 料号
+replacement = "[PN-REDACTED]"
+
+[redaction.logos]
+sha256 = []                       # 资产 sha256 精确匹配
+filename_globs = ["*logo*"]
+alt_globs = ["*logo*"]
+```
+
+运行 `kb extract .`（或 `--redaction-policy <path>`；`--no-redaction` 可强制关闭）。
+每份文档会额外写出 `redaction.json` 审计侧车（只含计数，不含被脱敏原值）。
+
+脱敏范围覆盖落盘的全部产物：`main.md` 正文、`index.json` 的章节标题、以及
+`meta.json` 的源文件名 / 警告 / 跳过原因。段落锚点 `<a id="...">` 与节点 id
+永不改动。
+
+> 注意：默认规则 `\b[MH]\d{6,8}\b` 用 `\b` 词边界匹配，下划线属于"单词字符"，
+> 因此 `M1320001_keyset.pdf` 这种紧跟下划线的料号不会被默认规则命中。如需覆盖此类
+> 文件名，请在 `redaction.toml` 自定义不依赖 `\b` 的规则
+> （例如 `pattern = '(?i)[MH]\d{6,8}'`）。
 
 ### 卸载
 
