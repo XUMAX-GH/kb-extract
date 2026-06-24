@@ -27,3 +27,8 @@ class HardnessViolation(Exception):
         self.invariant = invariant
         self.detail = detail
         super().__init__(f"[{invariant}] {detail}")
+
+
+class RedactionPolicyError(Exception):
+    """The redaction.toml policy file is missing (when explicitly given),
+    malformed, or contains an invalid regex. Surfaced to the user."""
