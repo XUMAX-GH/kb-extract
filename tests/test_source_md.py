@@ -1,5 +1,8 @@
+import json
+
 from kb_extract import source_md
 from kb_extract.redaction import RedactionPolicy, TextRule
+from kb_extract.serialization import serialize_source_meta_json
 from kb_extract.source_md import strip_images
 
 
@@ -57,3 +60,41 @@ def test_convert_one_without_policy_keeps_text_strips_images(monkeypatch, tmp_pa
     assert "logo.png" not in text  # images always stripped
     assert stats.pn_redacted == 0
     assert stats.images_stripped == 1
+
+
+def test_serialize_source_meta_json_sorted_counts_only():
+    out = serialize_source_meta_json(
+        source_path="sub/doc.docx",
+        source_sha256="a" * 64,
+        source_bytes=10,
+        source_mtime_iso="t",
+        markitdown_version="0.0.1",
+        source_md_sha256="b" * 64,
+        images_stripped=2,
+        pn_redacted=3,
+        policy_sha256="c" * 64,
+        generated_at_iso="t2",
+    )
+    assert out.endswith("\n")
+    d = json.loads(out)
+    assert d["images_stripped"] == 2
+    assert d["pn_redacted"] == 3
+    assert d["policy_sha256"] == "c" * 64
+    assert d["source_md_sha256"] == "b" * 64
+    assert set(d.keys()) == {
+        "generated_at_iso", "images_stripped", "markitdown_version",
+        "pn_redacted", "policy_sha256", "source_bytes", "source_md_sha256",
+        "source_mtime_iso", "source_path", "source_sha256",
+    }
+    # keys sorted
+    assert out.index("generated_at_iso") < out.index("source_sha256")
+
+
+def test_serialize_source_meta_json_null_policy():
+    out = serialize_source_meta_json(
+        source_path="d.docx", source_sha256="a" * 64, source_bytes=1,
+        source_mtime_iso="t", markitdown_version="0.0.1",
+        source_md_sha256="b" * 64, images_stripped=0, pn_redacted=0,
+        policy_sha256=None, generated_at_iso="t2",
+    )
+    assert json.loads(out)["policy_sha256"] is None

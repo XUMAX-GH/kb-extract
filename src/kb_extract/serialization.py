@@ -58,6 +58,36 @@ def serialize_markdown(text: str) -> str:
     return text
 
 
+def serialize_source_meta_json(
+    *,
+    source_path: str,
+    source_sha256: str,
+    source_bytes: int,
+    source_mtime_iso: str,
+    markitdown_version: str,
+    source_md_sha256: str,
+    images_stripped: int,
+    pn_redacted: int,
+    policy_sha256: str | None,
+    generated_at_iso: str,
+) -> str:
+    """Canonical source.md sidecar. Only counts/hashes, never redacted values."""
+    return _json_dumps(
+        {
+            "generated_at_iso": generated_at_iso,
+            "images_stripped": images_stripped,
+            "markitdown_version": markitdown_version,
+            "pn_redacted": pn_redacted,
+            "policy_sha256": policy_sha256,
+            "source_bytes": source_bytes,
+            "source_md_sha256": source_md_sha256,
+            "source_mtime_iso": source_mtime_iso,
+            "source_path": source_path,
+            "source_sha256": source_sha256,
+        }
+    )
+
+
 def serialize_redaction_json(
     *, pn_redacted: int, logos_dropped: int, policy_sha256: str
 ) -> str:
