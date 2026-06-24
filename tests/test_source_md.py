@@ -1,6 +1,7 @@
 import json
 
 from kb_extract import source_md
+from kb_extract import source_md as _sm
 from kb_extract.redaction import RedactionPolicy, TextRule
 from kb_extract.serialization import serialize_source_meta_json
 from kb_extract.source_manifest import SourceManifest, SourceRow
@@ -142,3 +143,112 @@ def test_source_manifest_upsert_get_and_idempotency(tmp_path):
     assert row.status == "failed"
     assert row.error_repr == "boom"
     m.close()
+
+
+def _fake_convert_factory(text_by_name):
+    def _convert(src):
+        return text_by_name[src.name]
+    return _convert
+
+
+def test_run_source_writes_source_md_and_sidecar(monkeypatch, tmp_path):
+    project = tmp_path / "P"
+    project.mkdir()
+    (project / "a.docx").write_bytes(b"aaa")
+    (project / "redaction.toml").write_text(
+        "[redaction]\nenabled = true\n[[redaction.text]]\n"
+        "pattern = '(?i)\\b[MH]\\d{6,8}\\b'\nreplacement = \"[PN-REDACTED]\"\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        _sm, "_markitdown_convert",
+        _fake_convert_factory({"a.docx": "# A M1320001\n\n![l](x.png)\nBody.\n"}),
+    )
+    report = _sm.run_source(project)
+    out = project / "kb" / "a"
+    sm_text = (out / "source.md").read_text(encoding="utf-8")
+    assert "M1320001" not in sm_text
+    assert "x.png" not in sm_text
+    assert (out / "source.meta.json").exists()
+    assert report.ok_count == 1
+    assert report.pn_redacted == 1
+    assert report.images_stripped == 1
+
+
+def test_run_source_is_idempotent_second_run_unchanged(monkeypatch, tmp_path):
+    project = tmp_path / "P"
+    project.mkdir()
+    (project / "a.docx").write_bytes(b"aaa")
+    monkeypatch.setattr(
+        _sm, "_markitdown_convert",
+        _fake_convert_factory({"a.docx": "# A\n\nBody.\n"}),
+    )
+    _sm.run_source(project)
+    report2 = _sm.run_source(project)
+    assert report2.unchanged_count == 1
+    assert report2.ok_count == 0
+
+
+def test_run_source_reprocesses_with_force(monkeypatch, tmp_path):
+    project = tmp_path / "P"
+    project.mkdir()
+    (project / "a.docx").write_bytes(b"aaa")
+    monkeypatch.setattr(
+        _sm, "_markitdown_convert",
+        _fake_convert_factory({"a.docx": "# A\n\nBody.\n"}),
+    )
+    _sm.run_source(project)
+    report2 = _sm.run_source(project, force=True)
+    assert report2.ok_count == 1
+    assert report2.unchanged_count == 0
+
+
+def test_run_source_one_bad_file_does_not_abort(monkeypatch, tmp_path):
+    project = tmp_path / "P"
+    project.mkdir()
+    (project / "a.docx").write_bytes(b"aaa")
+    (project / "b.docx").write_bytes(b"bbb")
+
+    def _convert(src):
+        if src.name == "b.docx":
+            raise RuntimeError("cannot convert")
+        return "# A\n\nBody.\n"
+
+    monkeypatch.setattr(_sm, "_markitdown_convert", _convert)
+    report = _sm.run_source(project)
+    assert report.ok_count == 1
+    assert report.failed_count == 1
+    assert (project / "kb" / "a" / "source.md").exists()
+
+
+def test_run_source_deterministic_bytes_two_projects(monkeypatch, tmp_path):
+    raw = "# A M1320001\r\n\r\n![l](x.png)\r\nBody.\r\n"  # CRLF to prove normalization
+    monkeypatch.setattr(
+        _sm, "_markitdown_convert", lambda src: raw,
+    )
+
+    def build(name):
+        p = tmp_path / name
+        p.mkdir()
+        (p / "a.docx").write_bytes(b"aaa")
+        return p
+
+    p1, p2 = build("P1"), build("P2")
+    _sm.run_source(p1)
+    _sm.run_source(p2)
+    b1 = (p1 / "kb" / "a" / "source.md").read_bytes()
+    b2 = (p2 / "kb" / "a" / "source.md").read_bytes()
+    assert b1 == b2
+    assert b"\r" not in b1
+
+
+def test_run_source_dry_run_writes_nothing(monkeypatch, tmp_path):
+    project = tmp_path / "P"
+    project.mkdir()
+    (project / "a.docx").write_bytes(b"aaa")
+    monkeypatch.setattr(
+        _sm, "_markitdown_convert", lambda src: "# A\n\nBody.\n",
+    )
+    report = _sm.run_source(project, dry_run=True)
+    assert not (project / "kb" / "a" / "source.md").exists()
+    assert report.dry_run_count == 1
