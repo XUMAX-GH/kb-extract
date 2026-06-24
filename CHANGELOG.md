@@ -1,5 +1,26 @@
 # 更新日志
 
+## [0.13.0] - 2026-06-24
+
+### Added
+
+- 新增 `kb wiki requirements PATH` 命令，对 `kb/` 知识库中的每份文档执行工程需求提取：
+  - 确定性**领域路由器**（移植自 CTx_Converter）：按关键词 / 章节号把每节分配到
+    对应的工程领域（Mechanical / Electrical / Software / Reliability 等），完全离线。
+  - **Prompt 资产**：每个工程领域有独立的提示模板，调用 LLM 提取结构化
+    TestItem 记录（ID / 领域 / 描述 / 验证方法 / EvidenceRef 等字段）。
+  - **证据溯源**：每条 TestItem 的 `EvidenceRef` 由代码自动写入
+    `kb/<doc>/main.md#sec-NNNN`（真实段落锚点），结果完全可校验、可追溯。
+  - **三种 provider**：
+    - `mock`：离线冒烟，不产出 items，CI 默认；
+    - `cached`：按 prompt SHA-256 hash 从 `--responses-file` 读预录回复，完全可复现；
+    - `github-models`：通过 GitHub Models OpenAI 兼容 API 真实提取；
+      需要 `GITHUB_TOKEN`；可选 `KB_GITHUB_MODEL` / `KB_GITHUB_BASE_URL` 覆盖。
+  - **两种产物**：`kb/<doc>/requirements.json`（机器用 TestItem 数组）与
+    `kb/<doc>/requirements.md`（人类可读，按类别分组，含锚点链接）。
+  - 选项：`--provider`、`--responses-file`、`--model`、`-o/--output-dir`、
+    `--max-chars`、`--dry-run`、`--json`。
+
 ## [0.12.0] - 2026-06-24
 
 ### Added

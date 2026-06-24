@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml/badge.svg)](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.12.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.13.0-blue.svg)](CHANGELOG.md)
 
 ---
 
@@ -69,7 +69,7 @@ cd kb-extract
 完成后运行：
 
 ```bash
-kb --version          # 0.11.0
+kb --version          # 0.13.0
 kb adapters           # 列出 5 个内置适配器（4 个 v2 + 1 个 image）
 ```
 
@@ -375,7 +375,84 @@ deepest-matchable 优先：能匹配到 function 就不会停在 part；
 跨 PES 同名零件（e.g. Audio/Speaker/Tweeter vs Notification/Speaker/Tweeter）
 不会被合并。
 
-### 从 PRD 目录（TOC）构建层级（v0.10.0，`--from-toc`）
+### 工程需求提取（v0.13.0）
+
+`kb wiki requirements PATH` 对 `kb/` 知识库中的每份文档执行**工程需求提取**，
+把每个章节路由到对应的工程领域，调用 LLM 抽取结构化的 TestItem 记录，并把证据
+溯源锚定到 `main.md` 中的真实段落。
+
+### 用法
+
+```bash
+# 默认离线冒烟（mock provider，不产出 items）
+kb wiki requirements ./MyProject
+
+# 离线可复现（--responses-file 提供预录 prompt->response 映射）
+kb wiki requirements ./MyProject \
+    --provider cached \
+    --responses-file ./responses.json
+
+# 真实提取（调用 GitHub Models API；需要 GITHUB_TOKEN）
+export GITHUB_TOKEN=<your-token>
+kb wiki requirements ./MyProject \
+    --provider github-models \
+    --model gpt-4o
+```
+
+### 选项
+
+| 选项 | 默认值 | 说明 |
+|---|---|---|
+| `--provider` | `mock` | `mock` / `cached` / `github-models` |
+| `--responses-file` | — | `cached` provider 的预录 JSON，按 prompt hash 索引 |
+| `--model` | — | 覆盖 provider 使用的模型名称（`github-models` 可用 `KB_GITHUB_MODEL` 环境变量代替） |
+| `-o / --output-dir` | — | 重定向产物根目录（默认与 `kb/` 同一根） |
+| `--max-chars` | 1500 | 每节传入 LLM 的最大字符数 |
+| `--dry-run` | false | 仍调用 LLM 但不解析结果、不写盘（用于排查 provider/缓存连通性） |
+| `--json` | false | 以 JSON 输出运行摘要 |
+
+### Provider 说明
+
+| Provider | 联网 | 说明 |
+|---|---|---|
+| `mock` | 否 | 离线冒烟，模拟整个流程但不调用 LLM，**不产出任何 items**；适合 CI / 快速测试 |
+| `cached` | 否 | 按 prompt SHA-256 hash 从 `--responses-file` 读取预录回复，完全可复现；适合回归测试 |
+| `github-models` | 是 | 通过 GitHub Models OpenAI 兼容 API 真实提取；需要 `GITHUB_TOKEN`；可选 `KB_GITHUB_MODEL` / `KB_GITHUB_BASE_URL` 覆盖模型与端点 |
+
+### 输出产物
+
+每份文档在 `kb/<doc>/` 下写入两个文件：
+
+```
+kb/
+  thermal-spec/
+    requirements.json    <- 规范机器产物：TestItem 数组，含 ID / 领域 / 描述等字段
+    requirements.md      <- 人类可读版本：按类别分组，含指向 main.md 锚点的链接
+```
+
+### 证据溯源
+
+每条 TestItem 的 `EvidenceRef` 字段由**代码**（而非 LLM）自动写入，格式为
+`kb/<doc>/main.md#sec-NNNN`，与 `main.md` 中真实存在的段落锚点严格对应。
+这保证所有提取结果都可以用 `kb verify` 体系校验和追溯，不存在 LLM 自行捏造的引用。
+
+### 领域路由
+
+章节在传给 LLM 前，会经过一个确定性的**关键词 / 章节号路由器**
+（移植自 CTx_Converter），将每节分类到对应的工程领域（如 Mechanical /
+Electrical / Software / Reliability 等）。路由完全离线、无随机性。
+
+---
+
+> **数据外发提示**
+>
+> `--provider github-models` 会将章节正文文本发送到 **GitHub Models API**（Microsoft Azure 托管）。
+> 对于含保密信息的工程文档，请在使用前评估数据合规要求，或改用 `mock` / `cached`
+> provider 进行离线 / 可复现运行。
+
+---
+
+## 从 PRD 目录（TOC）构建层级（v0.10.0，`--from-toc`）
 
 真实的 Microsoft PRD 用 PDF 抽取时，正文标题常会**退化**：章节号
 （`## 2`、`## 3`、`## TX`）保留，但标题文字（`PRODUCT OVERVIEW`、
