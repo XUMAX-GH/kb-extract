@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "TestItem",
+  "description": "A single extracted engineering requirement / test item.",
+  "type": "object",
+  "required": ["Category", "Function", "What", "How", "Sample Size", "SourceDocument", "SourceSection", "EvidenceRef"],
+  "properties": {
+    "Category": {
+      "type": "string",
+      "description": "Engineering domain classification (e.g., Dimension, Mechanical, Acoustic)"
+    },
+    "Function": {
+      "type": "string",
+      "description": "Functional group (e.g., Physical Specification, Force Specification)"
+    },
+    "What": {
+      "type": "string",
+      "description": "Verbatim requirement text copied from the source document"
+    },
+    "How": {
+      "type": "string",
+      "description": "Test method if explicitly defined, otherwise 'Not explicitly defined'"
+    },
+    "Sample Size": {
+      "type": "string",
+      "description": "Sample size if explicitly stated, otherwise 'Not specified'"
+    },
+    "SourceDocument": {
+      "type": "string",
+      "description": "Document name/number if stated, otherwise 'Not explicitly stated'"
+    },
+    "SourceSection": {
+      "type": "string",
+      "description": "Section/table/figure identifier, or 'Page {n}, Block {id}' as fallback"
+    },
+    "EvidenceRef": {
+      "type": "string",
+      "description": "Block ID(s) from the input JSON (e.g., 'p1_b25' or 'p1_b25, p2_b3')"
+    }
+  },
+  "additionalProperties": false
+}
