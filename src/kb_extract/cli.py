@@ -68,6 +68,12 @@ def main() -> None:
     default=None,
     help="将 kb/ 写入此目录（而不是源所在目录）。目录不存在会自动创建。",
 )
+@click.option(
+    "--redaction-policy", "redaction_policy",
+    type=click.Path(path_type=Path), default=None,
+    help="脱敏策略文件路径（默认自动发现项目根的 redaction.toml）。",
+)
+@click.option("--no-redaction", is_flag=True, help="即使发现 redaction.toml 也强制关闭脱敏。")
 def extract(
     path: Path,
     force: bool,
@@ -76,6 +82,8 @@ def extract(
     only: tuple[str, ...],
     adapter: str | None,
     output_dir: Path | None,
+    redaction_policy: Path | None,
+    no_redaction: bool,
 ) -> None:
     """抽取 PATH 下的所有文档。"""
     only_exts = tuple(only) if only else None
@@ -88,6 +96,8 @@ def extract(
         dry_run=dry_run,
         only_exts=only_exts,
         output_dir=output_dir,
+        redaction_policy=redaction_policy,
+        no_redaction=no_redaction,
     )
     if as_json:
         d = {
@@ -96,6 +106,8 @@ def extract(
             "skipped_count": report.skipped_count,
             "unchanged_count": report.unchanged_count,
             "dry_run_count": report.dry_run_count,
+            "pn_redacted": report.pn_redacted,
+            "logos_dropped": report.logos_dropped,
             "violations": report.violations,
             "sources_processed": len(report.sources_processed),
             "overall_status": report.overall_status,
@@ -106,7 +118,8 @@ def extract(
         click.echo(
             f"ok={report.ok_count} failed={report.failed_count} "
             f"skipped={report.skipped_count} unchanged={report.unchanged_count} "
-            f"dry_run={report.dry_run_count}"
+            f"dry_run={report.dry_run_count} "
+            f"redacted_pn={report.pn_redacted} redacted_logos={report.logos_dropped}"
         )
         for v in report.violations:
             click.echo(f"  [violation] {v}", err=True)

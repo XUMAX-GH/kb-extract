@@ -1,3 +1,4 @@
+import ast
 import hashlib
 import json
 import zipfile
@@ -352,3 +353,42 @@ def test_run_does_not_enable_zip_embedded_policy_when_parent_has_no_policy(tmp_p
     assert report.logos_dropped == 0
     assert "M1320001" in (child_out / "main.md").read_text(encoding="utf-8")
     assert not (child_out / "redaction.json").exists()
+
+
+def test_redaction_is_deterministic_across_two_runs(tmp_path):
+    reg1, reg2 = Registry(), Registry()
+    reg1.register(_RedactTestAdapter())
+    reg2.register(_RedactTestAdapter())
+
+    def build(root):
+        root.mkdir(parents=True)
+        (root / "doc.rdt").write_bytes(b"x")
+        (root / "redaction.toml").write_text(POLICY, encoding="utf-8")
+        return root
+
+    r1 = build(tmp_path / "a")
+    r2 = build(tmp_path / "b")
+    run(r1, registry=reg1)
+    run(r2, registry=reg2)
+    md1 = (r1 / "kb" / "doc" / "main.md").read_bytes()
+    md2 = (r2 / "kb" / "doc" / "main.md").read_bytes()
+    assert md1 == md2
+    side1 = (r1 / "kb" / "doc" / "redaction.json").read_bytes()
+    side2 = (r2 / "kb" / "doc" / "redaction.json").read_bytes()
+    assert side1 == side2
+    assert b"\r" not in md1  # LF only
+
+
+def test_redaction_module_imports_no_llm_sdk():
+    import kb_extract.redaction as mod
+    src = Path(mod.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for n in node.names:
+                names.add(n.name)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            names.add(node.module)
+    forbidden = {"openai", "anthropic", "litellm", "langchain", "transformers"}
+    assert not (names & forbidden)

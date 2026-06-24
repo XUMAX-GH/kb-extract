@@ -1,5 +1,15 @@
 # 更新日志
 
+## [0.11.0] - 2026-06-24
+
+### Added
+- Deterministic redaction layer (SP-1): opt-in `redaction.toml` policy redacts
+  part-number text (e.g. M132xxxx / H123xxxx) and drops logo images before the
+  extraction output is written. Anchors are preserved and output stays
+  byte-reproducible. Adds `kb extract --redaction-policy / --no-redaction`, a
+  counts-only `redaction.json` audit sidecar, manifest re-extraction when the
+  policy changes, and redaction propagation into nested ZIP children.
+
 所有重要的版本变更都会记录在本文件中。
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；
