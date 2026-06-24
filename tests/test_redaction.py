@@ -11,6 +11,7 @@ from kb_extract.redaction import (
     apply_to_result,
     load_policy,
 )
+from kb_extract.serialization import serialize_redaction_json
 
 
 def _write_policy(root: Path, body: str) -> Path:
@@ -158,3 +159,16 @@ def test_apply_drops_logo_by_alt_glob():
     _, stats, dropped = apply_to_result(_result(md, assets), _policy(alt_globs=("*logo*",)))
     assert dropped == ("assets/x.png",)
     assert stats.logos_dropped == 1
+
+
+def test_serialize_redaction_json_counts_only_sorted_keys():
+    out = serialize_redaction_json(pn_redacted=12, logos_dropped=3, policy_sha256="e" * 64)
+    assert out.endswith("\n")
+    assert '"logos_dropped": 3' in out
+    assert '"pn_redacted": 12' in out
+    assert '"policy_sha256": "' + "e" * 64 + '"' in out
+    # keys sorted: logos_dropped < pn_redacted < policy_sha256
+    assert out.index("logos_dropped") < out.index("pn_redacted") < out.index("policy_sha256")
+    # only the three known keys exist (no leaked source values)
+    import json as _json
+    assert set(_json.loads(out).keys()) == {"logos_dropped", "pn_redacted", "policy_sha256"}

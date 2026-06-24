@@ -56,3 +56,16 @@ def serialize_markdown(text: str) -> str:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = text.rstrip("\n") + "\n"
     return text
+
+
+def serialize_redaction_json(
+    *, pn_redacted: int, logos_dropped: int, policy_sha256: str
+) -> str:
+    """Counts-only audit sidecar. Never contains redacted source values."""
+    return _json_dumps(
+        {
+            "logos_dropped": logos_dropped,
+            "pn_redacted": pn_redacted,
+            "policy_sha256": policy_sha256,
+        }
+    )
