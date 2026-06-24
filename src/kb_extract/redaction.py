@@ -6,13 +6,14 @@ it is written to disk. See spec 2026-06-24-redaction-privacy-design.md.
 
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import re
 import tomllib
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from .contracts import ExtractionResult
+from .contracts import AssetRef, ExtractionResult
 from .errors import RedactionPolicyError
 
 
@@ -83,6 +84,15 @@ def load_policy(project_root: Path, override: Path | None) -> RedactionPolicy | 
     )
 
 
+def _is_logo(asset: AssetRef, policy: RedactionPolicy) -> bool:
+    if asset.sha256 in policy.logo_sha256:
+        return True
+    fname = asset.rel_path.rsplit("/", 1)[-1]
+    if any(fnmatch.fnmatch(fname, g) for g in policy.logo_filename_globs):
+        return True
+    return any(fnmatch.fnmatch(asset.alt, g) for g in policy.logo_alt_globs)
+
+
 def apply_to_result(
     result: ExtractionResult, policy: RedactionPolicy
 ) -> tuple[ExtractionResult, RedactionStats, tuple[str, ...]]:
@@ -91,12 +101,23 @@ def apply_to_result(
     Anchors (`<a id="...">`) are never touched: logo handling only removes
     image lines, and the default part-number patterns cannot match anchor ids.
     """
+    dropped = tuple(sorted(a.rel_path for a in result.assets if _is_logo(a, policy)))
+    dropped_set = set(dropped)
+    kept_assets = tuple(a for a in result.assets if a.rel_path not in dropped_set)
+
     md = result.markdown
+    if dropped:
+        kept_lines = [
+            line for line in md.split("\n")
+            if not any(f"]({p})" in line for p in dropped)
+        ]
+        md = "\n".join(kept_lines)
+
     pn_count = 0
     for rule in policy.text_rules:
         md, n = re.subn(rule.pattern, rule.replacement, md)
         pn_count += n
 
-    stats = RedactionStats(pn_redacted=pn_count, logos_dropped=0)
-    new_result = replace(result, markdown=md)
-    return new_result, stats, ()
+    new_result = replace(result, markdown=md, assets=kept_assets)
+    stats = RedactionStats(pn_redacted=pn_count, logos_dropped=len(dropped))
+    return new_result, stats, dropped

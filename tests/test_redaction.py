@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from kb_extract.contracts import ExtractionMeta, ExtractionResult, SectionNode
+from kb_extract.contracts import AssetRef, ExtractionMeta, ExtractionResult, SectionNode
 from kb_extract.errors import RedactionPolicyError
 from kb_extract.redaction import (
     RedactionPolicy,
@@ -119,3 +119,42 @@ def test_apply_preserves_anchor_line():
     rule = TextRule(pattern=r'(?i)\b[MH]\d{6,8}\b', replacement="[PN-REDACTED]")
     new_result, _, _ = apply_to_result(_result(md), _policy(text_rules=(rule,)))
     assert '<a id="sec-0001"></a>' in new_result.markdown
+
+
+def _logo_md() -> str:
+    return (
+        '<a id="sec-0001"></a>\n'
+        '# Leaf\n\n'
+        '![company logo](assets/logo_1.png)\n\n'
+        '![figure](assets/fig_2.png)\n'
+    )
+
+
+def test_apply_drops_logo_by_sha256():
+    assets = (
+        AssetRef(kind="image", rel_path="assets/logo_1.png", page=1, sha256="L" * 64, alt="company logo"),
+        AssetRef(kind="image", rel_path="assets/fig_2.png", page=1, sha256="F" * 64, alt="figure"),
+    )
+    new_result, stats, dropped = apply_to_result(
+        _result(_logo_md(), assets), _policy(logo_sha256=("L" * 64,))
+    )
+    assert dropped == ("assets/logo_1.png",)
+    assert "assets/logo_1.png" not in new_result.markdown
+    assert "assets/fig_2.png" in new_result.markdown
+    assert tuple(a.rel_path for a in new_result.assets) == ("assets/fig_2.png",)
+    assert stats.logos_dropped == 1
+
+
+def test_apply_drops_logo_by_filename_glob():
+    assets = (AssetRef(kind="image", rel_path="assets/logo_1.png", page=1, sha256="L" * 64, alt=""),)
+    _, stats, dropped = apply_to_result(_result(_logo_md(), assets), _policy(filename_globs=("*logo*",)))
+    assert dropped == ("assets/logo_1.png",)
+    assert stats.logos_dropped == 1
+
+
+def test_apply_drops_logo_by_alt_glob():
+    assets = (AssetRef(kind="image", rel_path="assets/x.png", page=1, sha256="L" * 64, alt="company logo"),)
+    md = '<a id="sec-0001"></a>\n# Leaf\n\n![company logo](assets/x.png)\n'
+    _, stats, dropped = apply_to_result(_result(md, assets), _policy(alt_globs=("*logo*",)))
+    assert dropped == ("assets/x.png",)
+    assert stats.logos_dropped == 1
