@@ -3,6 +3,7 @@ import json
 from kb_extract import source_md
 from kb_extract.redaction import RedactionPolicy, TextRule
 from kb_extract.serialization import serialize_source_meta_json
+from kb_extract.source_manifest import SourceManifest, SourceRow
 from kb_extract.source_md import strip_images
 
 
@@ -98,3 +99,36 @@ def test_serialize_source_meta_json_null_policy():
         policy_sha256=None, generated_at_iso="t2",
     )
     assert json.loads(out)["policy_sha256"] is None
+
+
+def test_source_manifest_upsert_get_and_idempotency(tmp_path):
+    db = tmp_path / "kb" / "source.manifest.sqlite"
+    m = SourceManifest(db)
+    src = tmp_path / "doc.docx"
+    src.write_bytes(b"x")
+    m.upsert_ok(
+        src,
+        source_sha256="a" * 64, source_bytes=1, source_mtime_iso="t",
+        markitdown_version="0.0.1", source_md_sha256="b" * 64,
+        images_stripped=1, pn_redacted=2, policy_sha256="c" * 64,
+        generated_at_iso="t2",
+    )
+    row = m.get(src)
+    assert isinstance(row, SourceRow)
+    assert row.status == "ok"
+    assert row.source_sha256 == "a" * 64
+    assert row.policy_sha256 == "c" * 64
+    assert row.markitdown_version == "0.0.1"
+    m.close()
+
+
+def test_source_manifest_mark_failed(tmp_path):
+    db = tmp_path / "kb" / "source.manifest.sqlite"
+    m = SourceManifest(db)
+    src = tmp_path / "bad.docx"
+    src.write_bytes(b"x")
+    m.mark_failed(src, "boom")
+    row = m.get(src)
+    assert row.status == "failed"
+    assert row.error_repr == "boom"
+    m.close()
