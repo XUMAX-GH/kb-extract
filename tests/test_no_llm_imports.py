@@ -65,6 +65,18 @@ def test_adapter_does_not_import_any_llm_sdk(path: Path):
     )
 
 
+def test_chat_completions_only_in_github_models():
+    import pathlib
+    src = pathlib.Path(__file__).resolve().parents[1] / "src" / "kb_extract"
+    offenders = []
+    for p in src.rglob("*.py"):
+        if p.name == "github_models.py":
+            continue
+        if "chat/completions" in p.read_text(encoding="utf-8"):
+            offenders.append(str(p.relative_to(src)))
+    assert not offenders, f"raw chat/completions outside github_models.py: {offenders}"
+
+
 @pytest.mark.parametrize("path", _adapter_files(), ids=lambda p: p.name)
 def test_adapter_does_not_import_from_wiki_layer(path: Path):
     """H2 extension (v0.3): adapters MUST stay below the wiki layer.
