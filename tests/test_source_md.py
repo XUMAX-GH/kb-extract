@@ -1,3 +1,5 @@
+from kb_extract import source_md
+from kb_extract.redaction import RedactionPolicy, TextRule
 from kb_extract.source_md import strip_images
 
 
@@ -16,3 +18,42 @@ def test_strip_images_removes_markdown_images_and_counts():
     assert "# Title" in out
     assert "Intro text." in out
     assert count == 3
+
+
+def _policy():
+    return RedactionPolicy(
+        enabled=True,
+        text_rules=(TextRule(pattern=r"(?i)\b[MH]\d{6,8}\b", replacement="[PN-REDACTED]"),),
+        logo_sha256=(), logo_filename_globs=(), logo_alt_globs=(),
+        policy_sha256="d" * 64,
+    )
+
+
+def test_convert_one_strips_images_and_redacts(monkeypatch, tmp_path):
+    raw = (
+        "# Doc M1320001\n\n"
+        "Part M1320001 is secret.\n\n"
+        "![logo](assets/logo.png)\n"
+    )
+    monkeypatch.setattr(source_md, "_markitdown_convert", lambda src: raw)
+    src = tmp_path / "doc.docx"
+    src.write_bytes(b"x")
+    text, stats = source_md.convert_one(src, _policy())
+    assert "M1320001" not in text
+    assert "[PN-REDACTED]" in text
+    assert "logo.png" not in text
+    assert text.endswith("\n") and "\r" not in text  # normalized
+    assert stats.images_stripped == 1
+    assert stats.pn_redacted == 2
+
+
+def test_convert_one_without_policy_keeps_text_strips_images(monkeypatch, tmp_path):
+    raw = "# Doc\n\nPart M1320001 stays.\n\n![logo](assets/logo.png)\n"
+    monkeypatch.setattr(source_md, "_markitdown_convert", lambda src: raw)
+    src = tmp_path / "doc.docx"
+    src.write_bytes(b"x")
+    text, stats = source_md.convert_one(src, None)
+    assert "M1320001" in text  # no policy -> text unchanged
+    assert "logo.png" not in text  # images always stripped
+    assert stats.pn_redacted == 0
+    assert stats.images_stripped == 1
