@@ -15,6 +15,7 @@ DEFAULT_DOC = "Not explicitly stated"
 
 @dataclass(frozen=True, slots=True)
 class TestItem:
+    __test__ = False  # tell pytest this dataclass is not a test class
     category: str
     function: str
     what: str
