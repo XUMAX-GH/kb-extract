@@ -1,0 +1,218 @@
+{
+  "product-overview": {
+    "keywords": [
+      "overview", "summary", "introduction", "product overview",
+      "reference document", "reference documents", "industry standard",
+      "SKU matrix", "shipping countries", "model number",
+      "hardware device config", "conventions", "terminology",
+      "product requirements summary", "strategic intent",
+      "product one pager", "features", "parts", "key parts",
+      "accessories", "compatibility", "in-box", "dock compatibility",
+      "launch countries", "program pillars"
+    ],
+    "section_patterns": ["^1\\.", "^2\\.0", "^2\\.1", "^2\\.2"]
+  },
+  "mechanical": {
+    "keywords": [
+      "mechanical", "hinge", "retractable hinge", "stiffness",
+      "flatness", "deflection", "force", "travel", "gap", "step",
+      "bend", "rigidity", "bounce", "closure", "protrusion",
+      "attach force", "detach force", "roll out", "twist",
+      "shear", "straightness", "fabric", "industrial design",
+      "fit and finish", "fit, finish", "external surfaces",
+      "device size", "weight", "enclosure", "tolerance analysis",
+      "lap stability", "waviness", "design requirements",
+      "soft edge", "noise", "flat bounce", "corner bend",
+      "extraction force", "retraction force", "typing rigidity"
+    ],
+    "section_patterns": ["^3\\.1\\.", "^3\\.2\\."]
+  },
+  "electrical": {
+    "keywords": [
+      "electrical", "electronic", "magnetic", "magnet",
+      "hall sensor", "hall effect", "sensor", "motherboard",
+      "voltage", "current", "trigger", "wake",
+      "impedance", "resistance", "capacitance",
+      "spine contacts", "spine interface", "host interface",
+      "system performance", "performance benchmark",
+      "memory", "storage", "SSD", "functional block diagram",
+      "key component", "pogo pin", "minimum input voltage",
+      "interface with the host", "block diagram"
+    ],
+    "section_patterns": ["^4\\.1\\.", "^4\\.2\\."]
+  },
+  "display": {
+    "keywords": [
+      "display", "optical", "TCON", "display experience",
+      "display calibration", "HDR", "Dolby Vision", "DRR",
+      "backlight compensation", "overdrive", "display startup",
+      "display visibility", "display compliance", "panel",
+      "OLED", "LCD", "adaptive color", "color profile",
+      "Miracast", "eGPU", "external display"
+    ],
+    "section_patterns": []
+  },
+  "ports-connectivity": {
+    "keywords": [
+      "port", "ports", "USB-C", "USB-A", "USB4", "HDMI",
+      "audio jack", "3.5mm", "SD card", "surface connect",
+      "connector", "thunderbolt", "DisplayPort", "DPAM",
+      "UCSI", "debug accessory", "CTI rating",
+      "port experience", "cable support"
+    ],
+    "section_patterns": []
+  },
+  "power-battery": {
+    "keywords": [
+      "power", "battery", "charging", "power management",
+      "power draw", "current draw", "subsystem power",
+      "battery life", "battery capacity", "battery pack",
+      "charge time", "discharge rate", "shelf-life",
+      "power source", "power throttling", "power supply",
+      "host authentication", "maximum current draw",
+      "subsystem power draw", "maximum allowable current",
+      "authentication power", "power states at power-up",
+      "charging rules", "pen charging"
+    ],
+    "section_patterns": ["^4\\.3\\.", "^4\\.4\\.", "^4\\.5\\."]
+  },
+  "user-experience": {
+    "keywords": [
+      "experience", "posture", "core posture", "key usage position",
+      "desktop use", "desktop mode", "posture transition",
+      "one finger opening", "anti-slip", "attach", "detach",
+      "closing alignment", "closing behavior", "roll out alignment",
+      "lapability", "sits flush", "retractable spine",
+      "open close wake", "open, close", "wake & auth",
+      "device usage mode", "button behavior"
+    ],
+    "section_patterns": []
+  },
+  "keyboard-input": {
+    "keywords": [
+      "keyboard", "keyset", "touchpad", "trackpad",
+      "key pitch", "key travel", "acoustic", "backlight",
+      "typing", "input", "click", "release", "spectral",
+      "angle transition", "stable typing",
+      "keyboard system operation", "hinge angle state",
+      "host cover turn-on", "hinge state stability",
+      "subsystem activity",
+      "input latency", "click to bang", "wake event",
+      "blade subsystem", "backlight fading",
+      "caps-lock", "function-lock",
+      "turn-on angle", "turn-off angle", "turn-on delay",
+      "turn-off delay", "host wake", "blade turn",
+      "keyboard accessibility", "keyboard layout",
+      "backlight illumination", "backlight uniformity",
+      "touchpad specification", "touchpad requirement",
+      "baseline capacitance", "touchpad latency",
+      "touchpad power state", "mechanical audio",
+      "force to fire", "snap ratio", "ghost click",
+      "false click", "touchpad impedance"
+    ],
+    "section_patterns": ["^6\\.1\\.", "^6\\.2\\.", "^6\\.3\\."]
+  },
+  "cosmetics-quality": {
+    "keywords": [
+      "cosmetic", "appearance", "finish", "color",
+      "logo", "logo application", "d-cover",
+      "internal parts visibility", "fabric cosmetics",
+      "color legend", "lower ledge",
+      "hinge termination", "steps & gaps",
+      "product quality", "product detail"
+    ],
+    "section_patterns": []
+  },
+  "compliance-safety": {
+    "keywords": [
+      "safety", "EMC", "RF compliance", "regulatory",
+      "certification", "environmental compliance",
+      "sustainability", "restricted substance",
+      "EPEAT", "TCO", "energy efficiency",
+      "hazard analysis", "HARA", "critical to safety",
+      "responsible sourcing", "WHLK",
+      "reliability", "qualification",
+      "quality", "quality overview",
+      "signal & power integrity", "rest-of-world",
+      "RoHS", "analytical testing", "full material declaration"
+    ],
+    "section_patterns": ["^10\\."]
+  },
+  "repair-serviceability": {
+    "keywords": [
+      "repair", "repairability", "FRU", "field replaceable",
+      "serviceability", "wayfinding", "liquid damage indicator",
+      "in region repair", "IRR", "same unit repair", "SUR",
+      "design for service", "serial number"
+    ],
+    "section_patterns": ["^3\\.3$"]
+  },
+  "dfx-manufacturing": {
+    "keywords": [
+      "DFX", "design for excellence", "MFG target",
+      "design for automation", "design for fungibility",
+      "design for assembly", "DFA", "DFM",
+      "manufacturing process", "design for manufacturability",
+      "capital reconfiguration", "make vs buy",
+      "automation rate", "fungibility", "changeover",
+      "poka-yoke", "design for capital"
+    ],
+    "section_patterns": ["^8\\."]
+  },
+  "packaging-logistics": {
+    "keywords": [
+      "packaging", "package", "in-box contents",
+      "shipping", "storage", "shipping environmental",
+      "storage environmental", "workmanship",
+      "package design", "structural design",
+      "shipping channel", "finished goods",
+      "storage envelope", "operational envelope",
+      "shipping specification", "performance testing"
+    ],
+    "section_patterns": ["^9\\."]
+  },
+  "wireless-rf": {
+    "keywords": [
+      "wireless", "WiFi", "WLAN", "Bluetooth", "BLE",
+      "RF structural", "antenna", "SAR",
+      "wireless connectivity", "pairing",
+      "RF desense", "wireless charging"
+    ],
+    "section_patterns": []
+  },
+  "audio-camera-sensors": {
+    "keywords": [
+      "audio", "speaker", "microphone",
+      "camera", "front facing camera", "rear facing camera",
+      "camera privacy", "biometric", "Windows Hello",
+      "IR camera", "fingerprint",
+      "digitizer", "pen",
+      "ambient color sensor", "accelerometer",
+      "gyroscope", "magnetometer", "sensor feature"
+    ],
+    "section_patterns": []
+  },
+  "software": {
+    "keywords": [
+      "software", "firmware", "driver", "HID",
+      "operating system", "OS", "UEFI", "BIOS",
+      "provisioning", "fusing", "OTA", "firmware update",
+      "plug and play", "on-screen keyboard",
+      "commercial", "BitLocker", "Autopilot", "SEMM",
+      "DFCI", "encryption", "Hyper-V",
+      "blade software", "surface fundamentals",
+      "SW ID table", "hardware ID", "adaptive touchpad"
+    ],
+    "section_patterns": ["^7\\."]
+  },
+  "thermal": {
+    "keywords": [
+      "thermal", "temperature", "heat", "cooling",
+      "dissipation", "thermal resistance", "TDP",
+      "thermal capacity", "fan noise", "skin temperature",
+      "touch temperature", "thermal experience",
+      "SoC cooling", "storage cooling"
+    ],
+    "section_patterns": []
+  }
+}
