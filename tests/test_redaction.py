@@ -355,6 +355,82 @@ def test_run_does_not_enable_zip_embedded_policy_when_parent_has_no_policy(tmp_p
     assert not (child_out / "redaction.json").exists()
 
 
+_PN_RULE = TextRule(pattern=r"(?i)\b[MH]\d{6,8}\b", replacement="[PN-REDACTED]")
+
+
+def _result_with_pn_in_index_and_meta():
+    root = SectionNode(
+        node_id="0000", title="M1320001 Root", level=0, page_start=1, page_end=1,
+        anchor="", language="und",
+        children=(SectionNode(
+            node_id="0001", title="Leaf H1234567", level=1, page_start=1, page_end=1,
+            anchor="sec-0001", language="und",
+        ),),
+    )
+    meta = ExtractionMeta(
+        source_path="M9000006.pdf", source_sha256="a" * 64, source_bytes=1,
+        source_mtime_iso="t", adapter_name="p", adapter_version="v",
+        tool_versions={}, extracted_at_iso="t", outline_source="bookmark",
+        status="partial", warnings=("warn about M1110000",),
+        skipped_reasons=("skipped H2220000 page",),
+    )
+    md = '<a id="sec-0001"></a>\n# Leaf\n\nBody M1320001 here.\n'
+    return ExtractionResult(markdown=md, index=root, tables=(), assets=(), meta=meta)
+
+
+def test_apply_redacts_index_titles_recursively():
+    new_result, _, _ = apply_to_result(
+        _result_with_pn_in_index_and_meta(), _policy(text_rules=(_PN_RULE,))
+    )
+    assert new_result.index.title == "[PN-REDACTED] Root"
+    assert new_result.index.children[0].title == "Leaf [PN-REDACTED]"
+    # anchors and ids are never touched
+    assert new_result.index.children[0].anchor == "sec-0001"
+    assert new_result.index.children[0].node_id == "0001"
+
+
+def test_apply_redacts_meta_source_path_and_messages():
+    new_result, _, _ = apply_to_result(
+        _result_with_pn_in_index_and_meta(), _policy(text_rules=(_PN_RULE,))
+    )
+    assert new_result.meta.source_path == "[PN-REDACTED].pdf"
+    assert new_result.meta.warnings == ("warn about [PN-REDACTED]",)
+    assert new_result.meta.skipped_reasons == ("skipped [PN-REDACTED] page",)
+    # non-text fields untouched
+    assert new_result.meta.source_sha256 == "a" * 64
+
+
+def test_apply_counts_include_markdown_index_and_meta():
+    _, stats, _ = apply_to_result(
+        _result_with_pn_in_index_and_meta(), _policy(text_rules=(_PN_RULE,))
+    )
+    # 1 in markdown + 2 in index titles + 3 in meta (source_path, warning, skipped)
+    assert stats.pn_redacted == 6
+
+
+def test_run_redacts_index_and_meta_json_on_disk(tmp_path):
+    from dataclasses import replace as _replace
+
+    class _PNInIndexMetaAdapter(_RedactTestAdapter):
+        def extract(self, src, out_dir_tmp):
+            result = super().extract(src, out_dir_tmp)
+            index = _replace(result.index, title="M1320001 Root")
+            meta = _replace(result.meta, source_path="M1320001.rdt")
+            return _replace(result, index=index, meta=meta)
+
+    project = _project_with_policy(tmp_path, POLICY)
+    reg = Registry()
+    reg.register(_PNInIndexMetaAdapter())
+    run(project, registry=reg)
+    out = project / "kb" / "doc"
+    index_raw = (out / "index.json").read_text(encoding="utf-8")
+    meta_raw = (out / "meta.json").read_text(encoding="utf-8")
+    assert "M1320001" not in index_raw
+    assert "M1320001" not in meta_raw
+    assert "[PN-REDACTED]" in index_raw
+    assert "[PN-REDACTED]" in meta_raw
+
+
 def test_redaction_is_deterministic_across_two_runs(tmp_path):
     reg1, reg2 = Registry(), Registry()
     reg1.register(_RedactTestAdapter())

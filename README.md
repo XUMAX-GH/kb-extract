@@ -95,6 +95,15 @@ alt_globs = ["*logo*"]
 运行 `kb extract .`（或 `--redaction-policy <path>`；`--no-redaction` 可强制关闭）。
 每份文档会额外写出 `redaction.json` 审计侧车（只含计数，不含被脱敏原值）。
 
+脱敏范围覆盖落盘的全部产物：`main.md` 正文、`index.json` 的章节标题、以及
+`meta.json` 的源文件名 / 警告 / 跳过原因。段落锚点 `<a id="...">` 与节点 id
+永不改动。
+
+> 注意：默认规则 `\b[MH]\d{6,8}\b` 用 `\b` 词边界匹配，下划线属于"单词字符"，
+> 因此 `M1320001_keyset.pdf` 这种紧跟下划线的料号不会被默认规则命中。如需覆盖此类
+> 文件名，请在 `redaction.toml` 自定义不依赖 `\b` 的规则
+> （例如 `pattern = '(?i)[MH]\d{6,8}'`）。
+
 ### 卸载
 
 ```powershell

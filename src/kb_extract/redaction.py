@@ -13,7 +13,7 @@ import tomllib
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from .contracts import AssetRef, ExtractionResult
+from .contracts import AssetRef, ExtractionMeta, ExtractionResult, SectionNode
 from .errors import RedactionPolicyError
 
 
@@ -93,13 +93,58 @@ def _is_logo(asset: AssetRef, policy: RedactionPolicy) -> bool:
     return any(fnmatch.fnmatch(asset.alt, g) for g in policy.logo_alt_globs)
 
 
+def _apply_text_rules(text: str, rules: tuple[TextRule, ...]) -> tuple[str, int]:
+    count = 0
+    for rule in rules:
+        text, n = re.subn(rule.pattern, rule.replacement, text)
+        count += n
+    return text, count
+
+
+def _redact_section(node: SectionNode, rules: tuple[TextRule, ...]) -> tuple[SectionNode, int]:
+    """Redact node titles recursively. Anchors and ids are never touched."""
+    new_title, count = _apply_text_rules(node.title, rules)
+    new_children: list[SectionNode] = []
+    for child in node.children:
+        redacted, n = _redact_section(child, rules)
+        new_children.append(redacted)
+        count += n
+    return replace(node, title=new_title, children=tuple(new_children)), count
+
+
+def _redact_meta(meta: ExtractionMeta, rules: tuple[TextRule, ...]) -> tuple[ExtractionMeta, int]:
+    """Redact free-text meta fields that may carry part numbers."""
+    source_path, count = _apply_text_rules(meta.source_path, rules)
+    warnings: list[str] = []
+    for w in meta.warnings:
+        rw, n = _apply_text_rules(w, rules)
+        warnings.append(rw)
+        count += n
+    skipped: list[str] = []
+    for s in meta.skipped_reasons:
+        rs, n = _apply_text_rules(s, rules)
+        skipped.append(rs)
+        count += n
+    return (
+        replace(
+            meta,
+            source_path=source_path,
+            warnings=tuple(warnings),
+            skipped_reasons=tuple(skipped),
+        ),
+        count,
+    )
+
+
 def apply_to_result(
     result: ExtractionResult, policy: RedactionPolicy
 ) -> tuple[ExtractionResult, RedactionStats, tuple[str, ...]]:
     """Apply text + logo redaction. Returns (redacted_result, stats, dropped_rel_paths).
 
-    Anchors (`<a id="...">`) are never touched: logo handling only removes
-    image lines, and the default part-number patterns cannot match anchor ids.
+    Text rules are applied to the markdown body, the index section titles, and
+    free-text meta fields (source_path, warnings, skipped_reasons). Anchors
+    (`<a id="...">`) and section node ids are never touched: logo handling only
+    removes image lines, and title/meta redaction rewrites only text fields.
     """
     dropped = tuple(sorted(a.rel_path for a in result.assets if _is_logo(a, policy)))
     dropped_set = set(dropped)
@@ -113,11 +158,13 @@ def apply_to_result(
         ]
         md = "\n".join(kept_lines)
 
-    pn_count = 0
-    for rule in policy.text_rules:
-        md, n = re.subn(rule.pattern, rule.replacement, md)
-        pn_count += n
+    md, pn_count = _apply_text_rules(md, policy.text_rules)
+    new_index, index_count = _redact_section(result.index, policy.text_rules)
+    new_meta, meta_count = _redact_meta(result.meta, policy.text_rules)
+    pn_count += index_count + meta_count
 
-    new_result = replace(result, markdown=md, assets=kept_assets)
+    new_result = replace(
+        result, markdown=md, index=new_index, assets=kept_assets, meta=new_meta
+    )
     stats = RedactionStats(pn_redacted=pn_count, logos_dropped=len(dropped))
     return new_result, stats, dropped

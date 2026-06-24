@@ -8,7 +8,9 @@
   extraction output is written. Anchors are preserved and output stays
   byte-reproducible. Adds `kb extract --redaction-policy / --no-redaction`, a
   counts-only `redaction.json` audit sidecar, manifest re-extraction when the
-  policy changes, and redaction propagation into nested ZIP children.
+  policy changes, and redaction propagation into nested ZIP children. Text rules
+  also redact `index.json` section titles and `meta.json` free-text fields
+  (source_path, warnings, skipped_reasons); anchors and node ids are preserved.
 
 所有重要的版本变更都会记录在本文件中。
 
