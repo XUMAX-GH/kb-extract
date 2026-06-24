@@ -9,9 +9,10 @@ from __future__ import annotations
 import hashlib
 import re
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
+from .contracts import ExtractionResult
 from .errors import RedactionPolicyError
 
 
@@ -80,3 +81,22 @@ def load_policy(project_root: Path, override: Path | None) -> RedactionPolicy | 
         logo_alt_globs=tuple(logos.get("alt_globs", [])),
         policy_sha256=hashlib.sha256(raw).hexdigest(),
     )
+
+
+def apply_to_result(
+    result: ExtractionResult, policy: RedactionPolicy
+) -> tuple[ExtractionResult, RedactionStats, tuple[str, ...]]:
+    """Apply text + logo redaction. Returns (redacted_result, stats, dropped_rel_paths).
+
+    Anchors (`<a id="...">`) are never touched: logo handling only removes
+    image lines, and the default part-number patterns cannot match anchor ids.
+    """
+    md = result.markdown
+    pn_count = 0
+    for rule in policy.text_rules:
+        md, n = re.subn(rule.pattern, rule.replacement, md)
+        pn_count += n
+
+    stats = RedactionStats(pn_redacted=pn_count, logos_dropped=0)
+    new_result = replace(result, markdown=md)
+    return new_result, stats, ()
