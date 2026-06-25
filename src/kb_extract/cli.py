@@ -535,11 +535,14 @@ def wiki_dump_prompts(
 )
 def wiki_verify(path: Path, as_json: bool, output_dir: Path | None) -> None:
     """校验 wiki/ 下所有 evidence pin 都能解析到真实 kb anchor (H14)。"""
-    from .wiki.orchestrator import verify_wiki
+    from .wiki.orchestrator import verify_wiki, verify_wikilinks
 
     if output_dir is not None:
         output_dir = output_dir.resolve()
     violations = verify_wiki(path, output_dir=output_dir)
+    from .layout import wiki_dir
+    wiki_root = wiki_dir(path, output_dir)
+    violations = list(violations) + verify_wikilinks(wiki_root)
     if as_json:
         click.echo(json.dumps({
             "ok": len(violations) == 0,

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -42,6 +43,8 @@ from .writer import WikiEntry, build_topic_markdown
 
 # 注意：和主 kb_extract 保持一致 — 写盘走 atomic rename
 _WIKI_INDEX_SCHEMA = 1
+
+_WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
 
 
 @dataclass(frozen=True, slots=True)
@@ -320,6 +323,34 @@ def verify_wiki(project_root: Path, output_dir: Path | None = None) -> list[str]
             )
 
     return violations
+
+
+def verify_wikilinks(wiki_root: Path) -> list[str]:
+    """Return a violation per ``[[target]]`` whose note file does not exist.
+
+    Obsidian resolves a link by note name. We accept a match if any ``.md``
+    file under ``wiki_root`` has either the exact relative path (``target.md``)
+    or a basename equal to the link's final segment.
+    """
+    wiki_root = Path(wiki_root)
+    if not wiki_root.is_dir():
+        return []
+    md_files = list(wiki_root.rglob("*.md"))
+    rel_paths = {f.relative_to(wiki_root).with_suffix("").as_posix() for f in md_files}
+    basenames = {f.stem for f in md_files}
+
+    violations: list[str] = []
+    for f in sorted(md_files):
+        text = f.read_text(encoding="utf-8")
+        for m in _WIKILINK_RE.finditer(text):
+            target = m.group(1).strip()
+            if target in rel_paths:
+                continue
+            if target.rsplit("/", 1)[-1] in basenames:
+                continue
+            rel = f.relative_to(wiki_root).as_posix()
+            violations.append(f"{rel}: dead wikilink [[{target}]]")
+    return sorted(violations)
 
 
 def _build_taxonomy_wiki(
