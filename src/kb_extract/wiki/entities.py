@@ -12,6 +12,11 @@ from __future__ import annotations
 from collections import defaultdict
 from dataclasses import dataclass
 
+from ..serialization import serialize_markdown
+from .frontmatter import build_frontmatter, render_frontmatter
+from .providers.base import LlmClient, Message
+from .wikilink import to_wikilink
+
 
 @dataclass(frozen=True, slots=True)
 class Candidate:
@@ -49,3 +54,53 @@ def extract_candidates(
             backlinks=tuple(sorted(backlinks_by_doc[key])),
         ))
     return out
+
+
+def _summary_messages(cand: Candidate) -> list[Message]:
+    sys: Message = {
+        "role": "system",
+        "content": (
+            "You are maintaining a cross-domain knowledge wiki. Write a short "
+            "(2-4 sentence) synthesis describing what this shared source covers "
+            "and why it connects the listed domains. Do not invent specifics; "
+            "stay general if unsure. No markdown headings."
+        ),
+    }
+    user: Message = {
+        "role": "user",
+        "content": (
+            f"Shared source: {cand.key}\n"
+            f"Connected domains: {', '.join(cand.domains)}\n"
+            f"Referenced by topics: {', '.join(cand.backlinks)}"
+        ),
+    }
+    return [sys, user]
+
+
+def render_entity_page(cand: Candidate, llm: LlmClient) -> str:
+    """Render one entity/concept aggregation page (frontmatter + summary +
+    sorted wikilink backlinks)."""
+    summary = llm.chat(_summary_messages(cand)).strip()
+    fm = render_frontmatter(build_frontmatter(
+        title=cand.key,
+        category_path=(cand.kind,),
+        slug=cand.key,
+        doc_ids=[cand.key],
+        page_type=cand.kind,
+        extra_tags=[f"domain/{d}" for d in cand.domains],
+    ))
+    lines = [
+        fm.rstrip("\n"),
+        "",
+        f"# {cand.key}",
+        "",
+        summary,
+        "",
+        "## Appears in",
+        "",
+    ]
+    for link in cand.backlinks:
+        label = link.rsplit("/", 1)[-1]
+        lines.append(f"- {to_wikilink(link, label)}")
+    lines.append("")
+    return serialize_markdown("\n".join(lines))

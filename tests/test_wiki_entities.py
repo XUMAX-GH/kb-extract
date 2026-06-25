@@ -2,7 +2,7 @@ import dataclasses
 
 import pytest
 
-from kb_extract.wiki.entities import Candidate, extract_candidates
+from kb_extract.wiki.entities import Candidate, extract_candidates, render_entity_page
 
 
 def test_extract_candidates_finds_cross_domain_doc_ids():
@@ -36,3 +36,27 @@ def test_candidate_is_frozen_dataclass():
     assert c.key == "X"
     with pytest.raises(dataclasses.FrozenInstanceError):
         c.key = "Y"
+
+
+class _Llm:
+    name = "fake"
+
+    def chat(self, messages):
+        return "This document is shared across mechanical and electrical."
+
+
+def test_render_entity_page_has_frontmatter_backlinks_and_summary():
+    cand = Candidate(key="M1041012", kind="entity",
+                     domains=("electrical", "mechanical"),
+                     backlinks=("bc/electrical/battery", "bc/mechanical/hinge"))
+    md = render_entity_page(cand, _Llm())
+    assert md.startswith("---\n")
+    assert "type: entity" in md
+    assert "# M1041012" in md
+    assert "## Appears in" in md
+    # Backlinks rendered as wikilinks, sorted.
+    assert "[[bc/electrical/battery|battery]]" in md
+    assert md.index("battery") < md.index("hinge")
+    assert "shared across mechanical and electrical" in md
+    assert md.endswith("\n")
+    assert "\r" not in md
