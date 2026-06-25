@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml/badge.svg)](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.11.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.12.0-blue.svg)](CHANGELOG.md)
 
 ---
 
@@ -103,6 +103,28 @@ alt_globs = ["*logo*"]
 > 因此 `M1320001_keyset.pdf` 这种紧跟下划线的料号不会被默认规则命中。如需覆盖此类
 > 文件名，请在 `redaction.toml` 自定义不依赖 `\b` 的规则
 > （例如 `pattern = '(?i)[MH]\d{6,8}'`）。
+
+## source.md 源文件层（kb source）
+
+`kb source` 用嵌入的 markitdown 把原始文件转换为一份完整、易读的
+`source.md`（写在 `kb/<doc>/source.md`），作为人类阅读与后续归纳的源文件。
+它与确定性的 `kb extract` 完全独立，不修改抽取产物：
+
+```bash
+kb source .                 # 为当前目录下所有文档生成 source.md
+kb source . --no-redaction  # 不脱敏
+kb source . --json          # 结构化报告
+```
+
+特性：
+
+- **始终无图**：所有图片引用都会被移除，杜绝 logo 泄漏，保证可读纯文本。
+- **料号脱敏**：若存在 `redaction.toml`，正文中的料号会按规则脱敏
+  （复用 `kb extract` 的同一策略）。
+- **确定性 + 幂等**：输出经归一化（LF / 无 BOM），对同一输入与同一
+  markitdown 版本 byte-identical；`kb/source.manifest.sqlite` 记录哈希，
+  未变更的文件再次运行记为 `unchanged`。
+- 每份文档附带 `source.meta.json` 侧车（只含哈希与计数，不含被脱敏原值）。
 
 ### 卸载
 

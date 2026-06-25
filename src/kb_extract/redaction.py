@@ -101,6 +101,11 @@ def _apply_text_rules(text: str, rules: tuple[TextRule, ...]) -> tuple[str, int]
     return text, count
 
 
+def redact_text(text: str, policy: RedactionPolicy) -> tuple[str, int]:
+    """Apply a policy's text rules to a plain string. Returns (text, count)."""
+    return _apply_text_rules(text, policy.text_rules)
+
+
 def _redact_section(node: SectionNode, rules: tuple[TextRule, ...]) -> tuple[SectionNode, int]:
     """Redact node titles recursively. Anchors and ids are never touched."""
     new_title, count = _apply_text_rules(node.title, rules)

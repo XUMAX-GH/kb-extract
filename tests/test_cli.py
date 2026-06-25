@@ -155,4 +155,20 @@ def test_kb_version_outputs_version():
     runner = CliRunner()
     result = runner.invoke(main, ["--version"])
     assert result.exit_code == 0
-    assert "0.11.0" in result.output
+    assert "0.12.0" in result.output
+
+
+def test_cli_source_smoke(tmp_path, monkeypatch):
+    from click.testing import CliRunner
+
+    from kb_extract import source_md as _sm
+    from kb_extract.cli import main
+
+    project = tmp_path / "P"
+    project.mkdir()
+    (project / "a.docx").write_bytes(b"aaa")
+    monkeypatch.setattr(_sm, "_markitdown_convert", lambda src: "# A\n\nBody.\n")
+    result = CliRunner().invoke(main, ["source", str(project)])
+    assert result.exit_code == 0
+    assert "ok=1" in result.output
+    assert (project / "kb" / "a" / "source.md").exists()
