@@ -19,6 +19,7 @@ from tempfile import NamedTemporaryFile
 
 from ..layout import kb_dir as _kb_dir
 from ..layout import wiki_dir as _wiki_dir
+from .frontmatter import build_frontmatter, render_frontmatter
 from .providers.base import LlmClient
 from .providers.mock import get_provider
 from .taxonomy import (
@@ -709,10 +710,17 @@ def build_wiki_v2(
                 best = cluster_evs[0].section_title or f"topic-{root_idx}"
             topic_slug = _slugify(best, f"topic-{root_idx:04d}")
             topic = Topic(slug=topic_slug, title=best, evidence=cluster_evs)
+            fm = render_frontmatter(build_frontmatter(
+                title=best,
+                category_path=cat_path,
+                slug=topic_slug,
+                doc_ids=[ev.doc_id for ev in cluster_evs],
+            ))
             entry = build_topic_markdown(
                 topic, llm, kb_root=kb_root,
                 category_path=cat_path,
                 category_title=cat_title,
+                frontmatter=fm,
             )
             all_topics.append(topic)
             all_entries.append(entry)
