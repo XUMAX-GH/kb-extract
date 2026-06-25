@@ -27,8 +27,8 @@ import docx as _docx
 import langdetect
 from docx.oxml.ns import qn
 
-from ..contracts import ExtractionResult, SectionNode, TableRef
-from ._common import make_meta
+from ..contracts import AssetRef, ExtractionResult, SectionNode, TableRef
+from ._common import make_meta, sha256_bytes
 from ._image_utils import save_image
 from ._table_utils import CellInfo, cells_to_html
 
@@ -150,12 +150,18 @@ def _build_cell_grid(table) -> list[list[CellInfo]]:
     return out
 
 
-def _extract_images_from_paragraph(paragraph, doc, out_dir: Path, counter: int) -> tuple[list[str], int]:
+def _extract_images_from_paragraph(
+    paragraph, doc, out_dir: Path, counter: int
+) -> tuple[list[str], list[AssetRef], int]:
     """Walk the paragraph's runs for ``<a:blip>`` embeds; save each.
 
-    Returns ``(markdown_lines, new_counter)``. Empty list if no images.
+    Returns ``(markdown_lines, asset_refs, new_counter)``. Empty lists if
+    no images. Every markdown ``![](assets/...)`` link is paired with an
+    ``AssetRef`` so the deterministic core's H5 check (markdown refs must
+    be registered assets) is satisfied.
     """
     md: list[str] = []
+    assets: list[AssetRef] = []
     related = doc.part.related_parts
     for blip in paragraph._element.iter(_QN_BLIP):
         rid = blip.get(_QN_EMBED)
@@ -169,7 +175,11 @@ def _extract_images_from_paragraph(paragraph, doc, out_dir: Path, counter: int) 
         rel = save_image(blob, out_dir, prefix="img", index=counter)
         if rel is not None:
             md.append(f"![]({rel})")
-    return md, counter
+            assets.append(AssetRef(
+                kind="image", rel_path=rel,
+                page=1, sha256=sha256_bytes(blob), alt="",
+            ))
+    return md, assets, counter
 
 
 def _iter_blocks(doc):
@@ -210,6 +220,7 @@ class DocxV2Adapter:
 
         children: list[SectionNode] = []
         tables: list[TableRef] = []
+        assets: list[AssetRef] = []
         warnings: list[str] = []
         anchor_counter = 0
         table_counter = 0
@@ -270,9 +281,10 @@ class DocxV2Adapter:
                         md_lines.append("")
                         body_text_acc.append(block.text)
                     # Extract any inline images in this paragraph (after text)
-                    img_lines, image_counter = _extract_images_from_paragraph(
+                    img_lines, img_assets, image_counter = _extract_images_from_paragraph(
                         block, doc, out_dir_tmp, image_counter,
                     )
+                    assets.extend(img_assets)
                     for img_md in img_lines:
                         md_lines.append(img_md)
                         md_lines.append("")
@@ -324,5 +336,6 @@ class DocxV2Adapter:
             warnings=tuple(warnings),
         )
         return ExtractionResult(
-            markdown=markdown, index=root, tables=tuple(tables), assets=(), meta=meta
+            markdown=markdown, index=root, tables=tuple(tables),
+            assets=tuple(assets), meta=meta,
         )
