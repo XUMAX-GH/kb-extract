@@ -27,6 +27,11 @@ from .source_md import run_source
 from .verify import verify_project
 
 
+def _today_iso() -> str:
+    import datetime
+    return datetime.date.today().isoformat()
+
+
 def _record_history(
     project_root: Path,
     command: str,
@@ -315,6 +320,12 @@ def wiki_group() -> None:
     default=None,
     help="taxonomy.json 路径（v0.7.0）。指定时按 category 子目录组织 wiki/。",
 )
+@click.option(
+    "--build-date",
+    "build_date",
+    default=None,
+    help="log.md 中记录的构建日期 (YYYY-MM-DD)，默认今天。",
+)
 def wiki_build(
     path: Path,
     provider: str,
@@ -327,6 +338,7 @@ def wiki_build(
     min_evidence: int,
     skip_numeric_titles: bool,
     taxonomy_path: Path | None,
+    build_date: str | None,
 ) -> None:
     """基于 PATH/kb/ 重新构建 wiki/。"""
     from .wiki import build_wiki
@@ -377,6 +389,7 @@ def wiki_build(
             output_dir=output_dir,
             min_evidence=min_evidence,
             skip_numeric_titles=skip_numeric_titles,
+            build_date=build_date or _today_iso(),
         )
     else:
         result = build_wiki(

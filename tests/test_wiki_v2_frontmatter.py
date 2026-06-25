@@ -17,7 +17,7 @@ def test_v2_topic_pages_have_frontmatter(tmp_path: Path) -> None:
     cfg = generate_taxonomy_v2(kb_root, prd_doc_id="BC PRD", pes_glob="M*")
     build_wiki_v2(project, taxonomy=cfg, provider="mock", seed=0)
     pages = [p for p in (project / "wiki").rglob("*.md")
-             if p.name != "_index.md"]
+             if p.name not in {"_index.md", "index.md", "log.md"}]
     assert pages, "expected at least one topic page"
     text = pages[0].read_text(encoding="utf-8")
     assert text.startswith("---\n")

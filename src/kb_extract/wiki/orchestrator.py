@@ -19,6 +19,8 @@ from tempfile import NamedTemporaryFile
 
 from ..layout import kb_dir as _kb_dir
 from ..layout import wiki_dir as _wiki_dir
+from ..serialization import serialize_markdown
+from .catalog import render_index_md, render_log_entry
 from .frontmatter import build_frontmatter, render_frontmatter
 from .providers.base import LlmClient
 from .providers.mock import get_provider
@@ -585,6 +587,7 @@ def build_wiki_v2(
     output_dir: Path | None = None,
     min_evidence: int = 1,
     skip_numeric_titles: bool = False,
+    build_date: str = "1970-01-01",
 ) -> WikiResult:
     """Hierarchical wiki build (v2). Layout::
 
@@ -739,6 +742,10 @@ def build_wiki_v2(
 
     # 4. Write files
     wiki_root = _wiki_dir(project_root, output_dir)
+    prior_log = ""
+    _log_path = wiki_root / "log.md"
+    if _log_path.is_file():
+        prior_log = _log_path.read_text(encoding="utf-8")
     if wiki_root.exists():
         for child in wiki_root.iterdir():
             if child.is_dir():
@@ -773,6 +780,35 @@ def build_wiki_v2(
     # 5. Recursive _index.md generation
     _write_v2_indices(wiki_root, taxonomy, final_topics, final_paths,
                       titles_by_path, provider_name)
+
+    # index.md catalog (content-oriented) + append-only log.md
+    catalog_rows = [
+        (
+            (cat_path[0] if cat_path else "_uncategorized"),
+            topic.title,
+            "/".join((*cat_path, topic.slug)) if cat_path else topic.slug,
+            [ev.doc_id for ev in topic.evidence],
+        )
+        for topic, cat_path in zip(final_topics, final_paths, strict=True)
+    ]
+    _atomic_write_bytes(
+        wiki_root / "index.md",
+        serialize_markdown(render_index_md(catalog_rows)).encode("utf-8"),
+    )
+    pins_total = sum(e.pin_count for e in final_entries)
+    new_line = render_log_entry(
+        date=build_date, provider=provider_name,
+        topics=len(final_topics), pins=pins_total,
+    )
+    log_text = (
+        prior_log.rstrip("\n") + "\n" + new_line
+        if prior_log.strip()
+        else new_line
+    )
+    _atomic_write_bytes(
+        wiki_root / "log.md",
+        serialize_markdown(log_text).encode("utf-8"),
+    )
 
     # 6. Serialize index.json (taxonomy_mode + v2 paths)
     sha_map = _load_source_sha256_map(project_root, output_dir)
