@@ -1,3 +1,7 @@
+import dataclasses
+
+import pytest
+
 from kb_extract.wiki.entities import Candidate, extract_candidates
 
 
@@ -30,3 +34,5 @@ def test_candidate_is_frozen_dataclass():
     c = Candidate(key="X", kind="entity", domains=("a", "b"),
                   backlinks=("bc/a/x", "bc/b/y"))
     assert c.key == "X"
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        c.key = "Y"
