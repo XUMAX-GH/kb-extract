@@ -60,6 +60,7 @@ class TestItem:
     source_document: str
     source_section: str
     evidence_ref: str
+    evidence_quote: str = ""
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -71,6 +72,7 @@ class TestItem:
             "SourceDocument": self.source_document,
             "SourceSection": self.source_section,
             "EvidenceRef": self.evidence_ref,
+            "EvidenceQuote": self.evidence_quote,
         }
 
     def sort_key(self) -> tuple[str, str, str, str]:
@@ -98,7 +100,8 @@ def parse_items(raw: str) -> list[dict]:
 
 
 def coerce_item(
-    obj: dict, *, anchor: str, section_title: str, category: str | None = None
+    obj: dict, *, anchor: str, section_title: str, category: str | None = None,
+    section_body: str = ""
 ) -> TestItem:
     """Build a TestItem, forcing EvidenceRef/SourceSection from real context.
 
@@ -116,6 +119,9 @@ def coerce_item(
     else:
         cat = s("Category") or "Uncategorized"
 
+    raw_quote = s("EvidenceQuote")
+    verified = find_verbatim(raw_quote, section_body) if raw_quote else None
+
     return TestItem(
         category=cat,
         function=s("Function"),
@@ -125,4 +131,5 @@ def coerce_item(
         source_document=s("SourceDocument") or DEFAULT_DOC,
         source_section=section_title or s("SourceSection"),
         evidence_ref=anchor,  # ALWAYS the real anchor; never trust LLM
+        evidence_quote=verified or "",
     )
