@@ -61,15 +61,27 @@ def parse_items(raw: str) -> list[dict]:
     return [obj for obj in data if isinstance(obj, dict)]
 
 
-def coerce_item(obj: dict, *, anchor: str, section_title: str) -> TestItem:
-    """Build a TestItem, forcing EvidenceRef/SourceSection from real context."""
+def coerce_item(
+    obj: dict, *, anchor: str, section_title: str, category: str | None = None
+) -> TestItem:
+    """Build a TestItem, forcing EvidenceRef/SourceSection from real context.
+
+    When ``category`` is provided it is forced onto the item (the document's
+    own chapter heading), overriding whatever the LLM emitted -- this keeps
+    grouping deterministic and tied to the document structure.
+    """
 
     def s(key: str, default: str = "") -> str:
         val = obj.get(key, default)
         return str(val).strip() if val is not None else default
 
+    if category is not None:
+        cat = category.strip() or "Uncategorized"
+    else:
+        cat = s("Category") or "Uncategorized"
+
     return TestItem(
-        category=s("Category") or "Uncategorized",
+        category=cat,
         function=s("Function"),
         what=s("What"),
         how=s("How") or DEFAULT_HOW,

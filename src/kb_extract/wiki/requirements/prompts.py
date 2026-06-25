@@ -1,4 +1,9 @@
-"""Compose chat messages for requirement extraction from bundled assets."""
+"""Compose chat messages for requirement extraction from bundled assets.
+
+System prompt = ``base_system_rules.md`` + ``p2_rules.md`` (CTx P2 precision
+variant). There is no domain-skill layer: the document's own chapter heading
+is passed through as the requirement Category (see ``sections.py``).
+"""
 
 from __future__ import annotations
 
@@ -7,7 +12,6 @@ from functools import cache
 from pathlib import Path
 
 from ..providers.base import Message
-from .router import FALLBACK_DOMAIN
 
 _ASSETS = Path(__file__).with_name("assets")
 _SEP = "\n\n---\n\n"
@@ -18,19 +22,11 @@ def _read_asset(rel: str) -> str:
     return (_ASSETS / rel).read_text(encoding="utf-8")
 
 
-def _domain_skill(domain: str) -> str:
-    path = _ASSETS / "domains" / f"{domain}.md"
-    if not path.is_file():
-        path = _ASSETS / "domains" / f"{FALLBACK_DOMAIN}.md"
-    return path.read_text(encoding="utf-8")
-
-
-def build_system_prompt(domain: str) -> str:
+def build_system_prompt() -> str:
     return _SEP.join(
         [
-            _read_asset("base_extraction.md").rstrip(),
-            _domain_skill(domain).rstrip(),
-            _read_asset("p1_rules.md").rstrip(),
+            _read_asset("base_system_rules.md").rstrip(),
+            _read_asset("p2_rules.md").rstrip(),
         ]
     )
 
@@ -56,10 +52,10 @@ def build_user_prompt(*, anchor: str, section_title: str, section_body: str) -> 
 
 
 def compose_messages(
-    *, domain: str, anchor: str, section_title: str, section_body: str
+    *, anchor: str, section_title: str, section_body: str
 ) -> list[Message]:
     return [
-        {"role": "system", "content": build_system_prompt(domain)},
+        {"role": "system", "content": build_system_prompt()},
         {
             "role": "user",
             "content": build_user_prompt(

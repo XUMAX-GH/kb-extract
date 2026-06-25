@@ -13,11 +13,6 @@ def _make_project(tmp_path: Path) -> Path:
         '<a id="sec-0001"></a>\n# 3.2 Hinge\n\nStiffness >= 5 N/mm.\n',
         encoding="utf-8",
     )
-    (doc / "index.json").write_text(
-        json.dumps({"title": "r", "anchor": "", "children": [
-            {"title": "3.2 Hinge", "anchor": "sec-0001", "children": []}]}),
-        encoding="utf-8",
-    )
     return tmp_path
 
 
@@ -32,14 +27,21 @@ def test_requirements_cached_uses_responses(tmp_path):
     proj = _make_project(tmp_path)
     from kb_extract.wiki.providers.cached import prompt_hash
     from kb_extract.wiki.requirements.prompts import compose_messages
-    from kb_extract.wiki.requirements.router import route_heading
-    from kb_extract.wiki.sections import read_section_body
+    from kb_extract.wiki.requirements.sections import (
+        chunk_body,
+        iter_content_sections,
+    )
 
-    body = read_section_body(proj / "kb", "DOC1", "sec-0001")
-    domain = route_heading("3.2 Hinge").domain
-    msgs = compose_messages(domain=domain, anchor="sec-0001",
-                            section_title="3.2 Hinge", section_body=body)
-    responses = {prompt_hash(msgs): '[{"Category":"Mechanical","What":"Stiffness >= 5"}]'}
+    sections = iter_content_sections(proj / "kb", "DOC1")
+    assert len(sections) == 1
+    sec = sections[0]
+    chunk = chunk_body(sec.body, max_chars=6000)[0]
+    msgs = compose_messages(
+        anchor=sec.anchor, section_title=sec.title, section_body=chunk
+    )
+    responses = {
+        prompt_hash(msgs): '[{"Category":"Ignored","What":"Stiffness >= 5"}]'
+    }
     rf = tmp_path / "responses.json"
     rf.write_text(json.dumps(responses), encoding="utf-8")
 
@@ -52,6 +54,8 @@ def test_requirements_cached_uses_responses(tmp_path):
     assert summary["items"] == 1
     out = json.loads((proj / "kb" / "DOC1" / "requirements.json").read_text())
     assert out[0]["EvidenceRef"] == "sec-0001"
+    # Category is forced from the document's own chapter heading, not the LLM.
+    assert out[0]["Category"] == sec.category
 
 
 def test_github_models_without_token_errors(tmp_path, monkeypatch):
