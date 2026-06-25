@@ -92,6 +92,7 @@ def build_topic_markdown(
     category_slug: str | None = None,
     category_path: tuple[str, ...] | None = None,
     category_title: str | None = None,
+    frontmatter: str | None = None,
 ) -> WikiEntry:
     """生成单个 topic 的完整 markdown（含 frontmatter + body + footnotes）。
 
@@ -103,6 +104,7 @@ def build_topic_markdown(
     prepends ``"../" * len(path)`` to ``../kb`` so footnote URLs resolve
     correctly from arbitrarily nested ``wiki/sys/sub/part/.../topic.md``.
     ``category_title``: when set, adds subsystem context to the LLM prompt.
+    ``frontmatter``: optional YAML frontmatter string prepended before the H1 title.
     """
     if not topic.evidence:
         raise ValueError(f"topic {topic.slug} has no evidence")
@@ -140,14 +142,18 @@ def build_topic_markdown(
             f"[^ev-{n}]: [{ev.section_title}{page_hint}]({url})"
         )
 
-    md_parts = [
+    md_parts: list[str] = []
+    if frontmatter:
+        md_parts.append(frontmatter.rstrip("\n"))
+        md_parts.append("")
+    md_parts.extend([
         f"# {topic.title}",
         "",
         f"> Slug: `{topic.slug}` · Evidence sources: {ev_count}",
         "",
         body.strip(),
         "",
-    ]
+    ])
     if footnote_lines:
         md_parts.extend(footnote_lines)
         md_parts.append("")
