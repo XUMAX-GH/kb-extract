@@ -560,8 +560,8 @@ def wiki_verify(path: Path, as_json: bool, output_dir: Path | None) -> None:
 @click.option("--model", default=None, help="github-models 模型名（如 openai/gpt-4o-mini）。")
 @click.option("-o", "--output-dir", type=click.Path(path_type=Path), default=None,
               help="从此目录读取 kb/，产物写回此目录的 kb/<doc>/。")
-@click.option("--max-chars", type=int, default=1500, show_default=True,
-              help="喂给 LLM 的单 section 正文上限。")
+@click.option("--max-chars", type=int, default=6000, show_default=True,
+              help="单次喂给 LLM 的正文分块上限（超出自动分块，不截断）。")
 @click.option("--dry-run", is_flag=True, help="只跑 prompt，不写盘。")
 @click.option("--json", "as_json", is_flag=True, help="以 JSON 打印摘要。")
 def wiki_requirements(path, provider, responses_file, model, output_dir,

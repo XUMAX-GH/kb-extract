@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml/badge.svg)](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.13.1-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.14.0-blue.svg)](CHANGELOG.md)
 
 ---
 
@@ -69,7 +69,7 @@ cd kb-extract
 完成后运行：
 
 ```bash
-kb --version          # 0.13.1
+kb --version          # 0.14.0
 kb adapters           # 列出 5 个内置适配器（4 个 v2 + 1 个 image）
 ```
 
@@ -375,11 +375,11 @@ deepest-matchable 优先：能匹配到 function 就不会停在 part；
 跨 PES 同名零件（e.g. Audio/Speaker/Tweeter vs Notification/Speaker/Tweeter）
 不会被合并。
 
-### 工程需求提取（v0.13.0）
+### 工程需求提取（v0.14.0）
 
-`kb wiki requirements PATH` 对 `kb/` 知识库中的每份文档执行**工程需求提取**，
-把每个章节路由到对应的工程领域，调用 LLM 抽取结构化的 TestItem 记录，并把证据
-溯源锚定到 `main.md` 中的真实段落。
+`kb wiki requirements PATH` 对 `kb/` 知识库中的每份文档执行**全文覆盖的工程需求
+提取**：遍历 `main.md` 中所有含正文/表格的章节，按文档自身的顶层章节标题分类，
+调用 LLM 抽取结构化的 TestItem 记录，并把证据溯源锚定到 `main.md` 中的真实段落。
 
 ### 用法
 
@@ -407,7 +407,7 @@ kb wiki requirements ./MyProject \
 | `--responses-file` | — | `cached` provider 的预录 JSON，按 prompt hash 索引 |
 | `--model` | — | 覆盖 provider 使用的模型名称（`github-models` 可用 `KB_GITHUB_MODEL` 环境变量代替） |
 | `-o / --output-dir` | — | 重定向产物根目录（默认与 `kb/` 同一根） |
-| `--max-chars` | 1500 | 每节传入 LLM 的最大字符数 |
+| `--max-chars` | 6000 | 每节传入 LLM 的最大字符数（超出按段落边界自动分块，不截断） |
 | `--dry-run` | false | 仍调用 LLM 但不解析结果、不写盘（用于排查 provider/缓存连通性） |
 | `--json` | false | 以 JSON 输出运行摘要 |
 
@@ -426,7 +426,7 @@ kb wiki requirements ./MyProject \
 ```
 kb/
   thermal-spec/
-    requirements.json    <- 规范机器产物：TestItem 数组，含 ID / 领域 / 描述等字段
+    requirements.json    <- 规范机器产物：TestItem 数组，含 ID / 类别 / 描述等字段
     requirements.md      <- 人类可读版本：按类别分组，含指向 main.md 锚点的链接
 ```
 
@@ -436,11 +436,11 @@ kb/
 `kb/<doc>/main.md#sec-NNNN`，与 `main.md` 中真实存在的段落锚点严格对应。
 这保证所有提取结果都可以用 `kb verify` 体系校验和追溯，不存在 LLM 自行捏造的引用。
 
-### 领域路由
+### 文档自身分类
 
-章节在传给 LLM 前，会经过一个确定性的**关键词 / 章节号路由器**
-（移植自 CTx_Converter），将每节分类到对应的工程领域（如 Mechanical /
-Electrical / Software / Reliability 等）。路由完全离线、无随机性。
+章节的 Category 直接取自**文档自身的顶层章节标题**（如 Mechanical & Industrial
+Design / Electrical / Software / Touchpad 等），由代码确定性地从 `main.md` 的标题
+层级推导，而非 LLM 自由生成或关键词启发式。这保证同一文档的分类稳定可复现。
 
 ---
 

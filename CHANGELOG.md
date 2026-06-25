@@ -1,5 +1,29 @@
 # 更新日志
 
+## [0.14.0] - 2026-06-26
+
+### Changed
+
+- `kb wiki requirements` 重构为**全文覆盖**抽取，需求提取更完整：
+  - 直接解析 `main.md` 的 `<a id="sec-NNNN">` 锚点遍历**所有含正文/表格的
+    section**（不再只取索引树叶子节点）；长 section 按段落边界自动分块、
+    不再 1500 字截断。此前 PRD 的 143 个 section 中仅 21 个进入流水线。
+  - **分类改用文档自身的顶层章节标题**（如 `Electrical` / `Mechanical &
+    Industrial Design`）作为 Category，完全确定性，由文档结构而非启发式决定。
+  - Prompt 切换到 CTx_Converter 原版 `base_system_rules.md` +
+    `P2_variant_rules.md`（system）+ `P2_user_template.md`（user），
+    去掉自定义 P1 规则与 18 个 domain-skill 模板。
+
+### Removed
+
+- 删除确定性**关键词领域路由器**（`router.py` / `domain_rules.json` /
+  `assets/domains/`）；分类现在直接来自文档章节标题。
+
+### Added
+
+- GitHub Models provider 增加**重试与退避**（尊重 `Retry-After` 响应头，
+  否则指数退避），解决大文档逐节调用时的 429 限流失败。
+
 ## [0.13.1] - 2026-06-25
 
 ### Fixed
