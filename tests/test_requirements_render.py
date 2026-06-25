@@ -51,3 +51,18 @@ def test_written_files_are_lf_only(tmp_path):
     write_requirements(tmp_path / "d", "DOC1", [_item()])
     assert b"\r" not in (tmp_path / "d" / "requirements.json").read_bytes()
     assert b"\r" not in (tmp_path / "d" / "requirements.md").read_bytes()
+
+
+def test_markdown_renders_evidence_quote_blockquote():
+    md = render_markdown("DOC1", [_item(evidence_quote="hinge torque is 5 Nm")])
+    assert "  - Evidence: > hinge torque is 5 Nm" in md
+
+
+def test_markdown_omits_quote_line_when_empty():
+    md = render_markdown("DOC1", [_item(evidence_quote="")])
+    assert "Evidence:" not in md
+
+
+def test_json_includes_evidence_quote_key():
+    out = render_json([_item(evidence_quote="Q")])
+    assert '"EvidenceQuote": "Q"' in out
