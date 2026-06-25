@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import os
+import time
+import urllib.error
 import urllib.request
 from collections.abc import Callable
 from typing import Any
@@ -17,6 +19,9 @@ from .base import Message
 
 DEFAULT_BASE_URL = "https://models.github.ai/inference"
 DEFAULT_MODEL = "openai/gpt-4o-mini"
+
+# HTTP status codes worth retrying: rate limiting + transient server errors.
+_RETRYABLE_STATUS = frozenset({429, 500, 502, 503, 504})
 
 Transport = Callable[[str, dict[str, str], bytes, float], dict[str, Any]]
 
@@ -49,6 +54,9 @@ class GitHubModelsLlmClient:
         temperature: float = 0.0,
         timeout: float = 60.0,
         transport: Transport | None = None,
+        max_retries: int = 5,
+        backoff_base: float = 2.0,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._token = (
             token
@@ -67,6 +75,27 @@ class GitHubModelsLlmClient:
         self._temperature = temperature
         self._timeout = timeout
         self._transport = transport or _urllib_transport
+        self._max_retries = max_retries
+        self._backoff_base = backoff_base
+        self._sleep = sleep
+
+    def _retry_delay(self, attempt: int, err: urllib.error.HTTPError) -> float:
+        """Seconds to wait before the next attempt.
+
+        Honors a numeric ``Retry-After`` header when present, otherwise uses
+        exponential backoff (``backoff_base ** attempt``).
+        """
+        retry_after = None
+        try:
+            retry_after = err.headers.get("Retry-After") if err.headers else None
+        except AttributeError:
+            retry_after = None
+        if retry_after:
+            try:
+                return float(retry_after)
+            except ValueError:
+                pass
+        return float(self._backoff_base) ** attempt
 
     def chat(self, messages: list[Message]) -> str:
         payload = {
@@ -81,7 +110,28 @@ class GitHubModelsLlmClient:
             "Accept": "application/json",
         }
         url = f"{self._base_url}/chat/completions"
-        resp = self._transport(url, headers, body, self._timeout)
+
+        attempt = 0
+        while True:
+            try:
+                resp = self._transport(url, headers, body, self._timeout)
+                break
+            except urllib.error.HTTPError as e:
+                if e.code not in _RETRYABLE_STATUS or attempt >= self._max_retries:
+                    raise GitHubModelsError(
+                        f"request failed (HTTP {e.code}) after {attempt} "
+                        f"retries"
+                    ) from e
+                self._sleep(self._retry_delay(attempt, e))
+                attempt += 1
+            except urllib.error.URLError as e:
+                if attempt >= self._max_retries:
+                    raise GitHubModelsError(
+                        f"request failed ({e}) after {attempt} retries"
+                    ) from e
+                self._sleep(float(self._backoff_base) ** attempt)
+                attempt += 1
+
         try:
             return resp["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError) as e:
