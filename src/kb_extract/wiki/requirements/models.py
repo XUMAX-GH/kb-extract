@@ -7,6 +7,42 @@ import re
 from dataclasses import dataclass
 
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
+_WS_RE = re.compile(r"\s+")
+
+
+def find_verbatim(quote: str, body: str) -> str | None:
+    """Return the original span of ``body`` matching ``quote`` ignoring only
+    whitespace differences, or ``None`` if there is no match.
+
+    Both strings are whitespace-normalized (runs of whitespace -> single
+    space, stripped) for comparison, but the returned value is the ORIGINAL
+    text from ``body`` (so rendering preserves the source exactly). This is the
+    zero-hallucination guard: an unverifiable quote yields ``None`` and is
+    dropped by the caller -- never approximated.
+    """
+    q = _WS_RE.sub(" ", quote).strip()
+    if not q:
+        return None
+    norm_chars: list[str] = []
+    orig_index: list[int] = []
+    prev_ws = False
+    for i, ch in enumerate(body):
+        if ch.isspace():
+            if not prev_ws and norm_chars:
+                norm_chars.append(" ")
+                orig_index.append(i)
+            prev_ws = True
+        else:
+            norm_chars.append(ch)
+            orig_index.append(i)
+            prev_ws = False
+    norm = "".join(norm_chars)
+    pos = norm.find(q)
+    if pos < 0:
+        return None
+    start = orig_index[pos]
+    end = orig_index[pos + len(q) - 1] + 1
+    return body[start:end]
 
 DEFAULT_HOW = "Not explicitly defined"
 DEFAULT_SAMPLE = "Not specified"
