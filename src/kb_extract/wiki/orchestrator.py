@@ -34,6 +34,7 @@ from .taxonomy import (
     route_evidence_v2,
 )
 from .topics import Topic, discover_topics
+from .wikilink import to_wikilink
 from .writer import WikiEntry, build_topic_markdown
 
 # 注意：和主 kb_extract 保持一致 — 写盘走 atomic rename
@@ -836,13 +837,13 @@ def _write_v2_indices(
         "",
     ]
     for sys_node in taxonomy.categories:
-        root_lines.append(f"- [{sys_node.title}]({sys_node.slug}/_index.md)")
+        root_lines.append(f"- {to_wikilink(f'{sys_node.slug}/_index', sys_node.title)}")
     # Also list any uncategorized topics under root
     uncategorized = terminals.get(("_uncategorized",), [])
     if uncategorized:
         root_lines.extend(["", "## Uncategorized", ""])
         for slug, title in sorted(uncategorized):
-            root_lines.append(f"- [{title}](_uncategorized/{slug}.md)")
+            root_lines.append(f"- {to_wikilink(f'_uncategorized/{slug}', title)}")
     _atomic_write_bytes(wiki_root / "_index.md",
                         ("\n".join(root_lines) + "\n").encode("utf-8"))
 
@@ -858,7 +859,16 @@ def _write_v2_indices(
             return
         target_dir.mkdir(parents=True, exist_ok=True)
 
+        fm = render_frontmatter(build_frontmatter(
+            title=node.title,
+            category_path=path,
+            slug=node.slug,
+            doc_ids=[],
+            page_type="index",
+        ))
         lines = [
+            fm.rstrip("\n"),
+            "",
             f"# {node.title}",
             "",
             f"> Layer: `{node.layer}` · Slug path: `{'/'.join(path)}`",
@@ -867,12 +877,12 @@ def _write_v2_indices(
         if has_children:
             lines.extend(["## 子分类", ""])
             for c in node.children:
-                lines.append(f"- [{c.title}]({c.slug}/_index.md)")
+                lines.append(f"- {to_wikilink(f'{c.slug}/_index', c.title)}")
             lines.append("")
         if has_terminals:
             lines.extend(["## 本节文章", ""])
             for slug, title in sorted(terminals[path]):
-                lines.append(f"- [{title}]({slug}.md)")
+                lines.append(f"- {to_wikilink(slug, title)}")
             lines.append("")
         _atomic_write_bytes(target_dir / "_index.md",
                             "\n".join(lines).encode("utf-8"))
@@ -895,7 +905,7 @@ def _write_v2_indices(
             "",
         ]
         for slug, title in sorted(terminals[("_uncategorized",)]):
-            lines.append(f"- [{title}]({slug}.md)")
+            lines.append(f"- {to_wikilink(slug, title)}")
         lines.append("")
         _atomic_write_bytes(uc_dir / "_index.md",
                             "\n".join(lines).encode("utf-8"))
