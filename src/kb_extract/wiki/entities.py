@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from pathlib import Path
 
 from ..serialization import serialize_markdown
 from .frontmatter import build_frontmatter, render_frontmatter
@@ -104,3 +105,26 @@ def render_entity_page(cand: Candidate, llm: LlmClient) -> str:
         lines.append(f"- {to_wikilink(link, label)}")
     lines.append("")
     return serialize_markdown("\n".join(lines))
+
+
+def build_aggregation_pages(
+    wiki_root: Path,
+    topics_meta: list[dict],
+    llm: LlmClient,
+    *,
+    min_domains: int = 2,
+) -> int:
+    """Write entity aggregation pages under ``wiki/entities/``.
+
+    Returns the number of pages written. No-op (returns 0) when there are no
+    cross-domain candidates.
+    """
+    cands = extract_candidates(topics_meta, min_domains=min_domains)
+    if not cands:
+        return 0
+    ent_dir = wiki_root / "entities"
+    ent_dir.mkdir(parents=True, exist_ok=True)
+    for cand in cands:
+        md = render_entity_page(cand, llm)
+        (ent_dir / f"{cand.key}.md").write_bytes(md.encode("utf-8"))
+    return len(cands)

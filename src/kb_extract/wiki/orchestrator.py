@@ -21,6 +21,7 @@ from ..layout import kb_dir as _kb_dir
 from ..layout import wiki_dir as _wiki_dir
 from ..serialization import serialize_markdown
 from .catalog import render_index_md, render_log_entry
+from .entities import build_aggregation_pages
 from .frontmatter import build_frontmatter, render_frontmatter
 from .providers.base import LlmClient
 from .providers.mock import get_provider
@@ -809,6 +810,19 @@ def build_wiki_v2(
         wiki_root / "log.md",
         serialize_markdown(log_text).encode("utf-8"),
     )
+
+    # 5b. Entity aggregation pages (cross-domain candidates)
+    topics_meta = [
+        {
+            "slug": topic.slug,
+            "title": topic.title,
+            "domain": cat_path[0] if cat_path else "_uncategorized",
+            "category_path": "/".join(cat_path) if cat_path else "_uncategorized",
+            "evidence_doc_ids": [ev.doc_id for ev in topic.evidence],
+        }
+        for topic, cat_path in zip(final_topics, final_paths, strict=True)
+    ]
+    build_aggregation_pages(wiki_root, topics_meta, llm)
 
     # 6. Serialize index.json (taxonomy_mode + v2 paths)
     sha_map = _load_source_sha256_map(project_root, output_dir)
