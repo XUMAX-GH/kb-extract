@@ -36,7 +36,8 @@ def render_markdown(doc_id: str, items: list[TestItem]) -> str:
             lines.append(f"  - Sample Size: {it.sample_size}")
             lines.append(f"  - Source: {it.source_document} / {it.source_section}")
             if it.evidence_quote:
-                lines.append(f"  - Evidence: > {it.evidence_quote}")
+                quote = " ".join(it.evidence_quote.split())
+                lines.append(f"  - Evidence: > {quote}")
             lines.append("")
     return serialize_markdown("\n".join(lines))
 

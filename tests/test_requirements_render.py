@@ -58,6 +58,17 @@ def test_markdown_renders_evidence_quote_blockquote():
     assert "  - Evidence: > hinge torque is 5 Nm" in md
 
 
+def test_markdown_folds_multiline_quote_to_single_line():
+    # A verbatim span may straddle line breaks in the source; folding internal
+    # whitespace keeps the requirements list structure intact (a blank line in
+    # the quote would otherwise terminate the list item).
+    md = render_markdown(
+        "DOC1", [_item(evidence_quote="shall maintain\n\n   a temperature")]
+    )
+    assert "  - Evidence: > shall maintain a temperature" in md
+    assert "\n\n   a temperature" not in md
+
+
 def test_markdown_omits_quote_line_when_empty():
     md = render_markdown("DOC1", [_item(evidence_quote="")])
     assert "Evidence:" not in md
