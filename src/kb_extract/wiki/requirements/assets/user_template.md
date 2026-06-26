@@ -9,6 +9,7 @@ Here is the document content, provided as a JSON List of blocks (Text, Table, Im
 Extract ALL technical requirements and specifications as Test Items.
 Refer to the 'id' field in the JSON for the 'EvidenceRef'.
 CRITICAL: There may be multiple items in this text. List EVERY single one. Do not summarize.
+- For each item also return `EvidenceQuote`: copy ONE sentence or table row VERBATIM (exactly as written, no paraphrase) from the section content above that most directly supports the requirement. It must be a literal substring of the provided text.
 
 ### P2 Precision Reminders
 - Do NOT extract model numbers, SKU identifiers, or process instructions (ODM/OEM tasks).

@@ -13,12 +13,17 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
 from ..layout import kb_dir as _kb_dir
 from ..layout import wiki_dir as _wiki_dir
+from ..serialization import serialize_markdown
+from .catalog import render_index_md, render_log_entry
+from .entities import build_aggregation_pages
+from .frontmatter import build_frontmatter, render_frontmatter
 from .providers.base import LlmClient
 from .providers.mock import get_provider
 from .taxonomy import (
@@ -33,10 +38,13 @@ from .taxonomy import (
     route_evidence_v2,
 )
 from .topics import Topic, discover_topics
+from .wikilink import to_wikilink
 from .writer import WikiEntry, build_topic_markdown
 
 # 注意：和主 kb_extract 保持一致 — 写盘走 atomic rename
 _WIKI_INDEX_SCHEMA = 1
+
+_WIKILINK_RE = re.compile(r"\[\[([^\]|]+)(?:\|[^\]]*)?\]\]")
 
 
 @dataclass(frozen=True, slots=True)
@@ -317,6 +325,34 @@ def verify_wiki(project_root: Path, output_dir: Path | None = None) -> list[str]
     return violations
 
 
+def verify_wikilinks(wiki_root: Path) -> list[str]:
+    """Return a violation per ``[[target]]`` whose note file does not exist.
+
+    Obsidian resolves a link by note name. We accept a match if any ``.md``
+    file under ``wiki_root`` has either the exact relative path (``target.md``)
+    or a basename equal to the link's final segment.
+    """
+    wiki_root = Path(wiki_root)
+    if not wiki_root.is_dir():
+        return []
+    md_files = list(wiki_root.rglob("*.md"))
+    rel_paths = {f.relative_to(wiki_root).with_suffix("").as_posix() for f in md_files}
+    basenames = {f.stem for f in md_files}
+
+    violations: list[str] = []
+    for f in sorted(md_files):
+        text = f.read_text(encoding="utf-8")
+        for m in _WIKILINK_RE.finditer(text):
+            target = m.group(1).strip()
+            if target in rel_paths:
+                continue
+            if target.rsplit("/", 1)[-1] in basenames:
+                continue
+            rel = f.relative_to(wiki_root).as_posix()
+            violations.append(f"{rel}: dead wikilink [[{target}]]")
+    return sorted(violations)
+
+
 def _build_taxonomy_wiki(
     project_root: Path,
     taxonomy: TaxonomyConfig,
@@ -583,6 +619,7 @@ def build_wiki_v2(
     output_dir: Path | None = None,
     min_evidence: int = 1,
     skip_numeric_titles: bool = False,
+    build_date: str = "1970-01-01",
 ) -> WikiResult:
     """Hierarchical wiki build (v2). Layout::
 
@@ -709,10 +746,17 @@ def build_wiki_v2(
                 best = cluster_evs[0].section_title or f"topic-{root_idx}"
             topic_slug = _slugify(best, f"topic-{root_idx:04d}")
             topic = Topic(slug=topic_slug, title=best, evidence=cluster_evs)
+            fm = render_frontmatter(build_frontmatter(
+                title=best,
+                category_path=cat_path,
+                slug=topic_slug,
+                doc_ids=[ev.doc_id for ev in cluster_evs],
+            ))
             entry = build_topic_markdown(
                 topic, llm, kb_root=kb_root,
                 category_path=cat_path,
                 category_title=cat_title,
+                frontmatter=fm,
             )
             all_topics.append(topic)
             all_entries.append(entry)
@@ -730,6 +774,10 @@ def build_wiki_v2(
 
     # 4. Write files
     wiki_root = _wiki_dir(project_root, output_dir)
+    prior_log = ""
+    _log_path = wiki_root / "log.md"
+    if _log_path.is_file():
+        prior_log = _log_path.read_text(encoding="utf-8")
     if wiki_root.exists():
         for child in wiki_root.iterdir():
             if child.is_dir():
@@ -764,6 +812,48 @@ def build_wiki_v2(
     # 5. Recursive _index.md generation
     _write_v2_indices(wiki_root, taxonomy, final_topics, final_paths,
                       titles_by_path, provider_name)
+
+    # index.md catalog (content-oriented) + append-only log.md
+    catalog_rows = [
+        (
+            (cat_path[0] if cat_path else "_uncategorized"),
+            topic.title,
+            "/".join((*cat_path, topic.slug)) if cat_path else topic.slug,
+            [ev.doc_id for ev in topic.evidence],
+        )
+        for topic, cat_path in zip(final_topics, final_paths, strict=True)
+    ]
+    _atomic_write_bytes(
+        wiki_root / "index.md",
+        serialize_markdown(render_index_md(catalog_rows)).encode("utf-8"),
+    )
+    pins_total = sum(e.pin_count for e in final_entries)
+    new_line = render_log_entry(
+        date=build_date, provider=provider_name,
+        topics=len(final_topics), pins=pins_total,
+    )
+    log_text = (
+        prior_log.rstrip("\n") + "\n" + new_line
+        if prior_log.strip()
+        else new_line
+    )
+    _atomic_write_bytes(
+        wiki_root / "log.md",
+        serialize_markdown(log_text).encode("utf-8"),
+    )
+
+    # 5b. Entity aggregation pages (cross-domain candidates)
+    topics_meta = [
+        {
+            "slug": topic.slug,
+            "title": topic.title,
+            "domain": cat_path[0] if cat_path else "_uncategorized",
+            "category_path": "/".join(cat_path) if cat_path else "_uncategorized",
+            "evidence_doc_ids": [ev.doc_id for ev in topic.evidence],
+        }
+        for topic, cat_path in zip(final_topics, final_paths, strict=True)
+    ]
+    build_aggregation_pages(wiki_root, topics_meta, llm)
 
     # 6. Serialize index.json (taxonomy_mode + v2 paths)
     sha_map = _load_source_sha256_map(project_root, output_dir)
@@ -828,13 +918,13 @@ def _write_v2_indices(
         "",
     ]
     for sys_node in taxonomy.categories:
-        root_lines.append(f"- [{sys_node.title}]({sys_node.slug}/_index.md)")
+        root_lines.append(f"- {to_wikilink(f'{sys_node.slug}/_index', sys_node.title)}")
     # Also list any uncategorized topics under root
     uncategorized = terminals.get(("_uncategorized",), [])
     if uncategorized:
         root_lines.extend(["", "## Uncategorized", ""])
         for slug, title in sorted(uncategorized):
-            root_lines.append(f"- [{title}](_uncategorized/{slug}.md)")
+            root_lines.append(f"- {to_wikilink(f'_uncategorized/{slug}', title)}")
     _atomic_write_bytes(wiki_root / "_index.md",
                         ("\n".join(root_lines) + "\n").encode("utf-8"))
 
@@ -850,7 +940,16 @@ def _write_v2_indices(
             return
         target_dir.mkdir(parents=True, exist_ok=True)
 
+        fm = render_frontmatter(build_frontmatter(
+            title=node.title,
+            category_path=path,
+            slug=node.slug,
+            doc_ids=[],
+            page_type="index",
+        ))
         lines = [
+            fm.rstrip("\n"),
+            "",
             f"# {node.title}",
             "",
             f"> Layer: `{node.layer}` · Slug path: `{'/'.join(path)}`",
@@ -859,12 +958,12 @@ def _write_v2_indices(
         if has_children:
             lines.extend(["## 子分类", ""])
             for c in node.children:
-                lines.append(f"- [{c.title}]({c.slug}/_index.md)")
+                lines.append(f"- {to_wikilink(f'{c.slug}/_index', c.title)}")
             lines.append("")
         if has_terminals:
             lines.extend(["## 本节文章", ""])
             for slug, title in sorted(terminals[path]):
-                lines.append(f"- [{title}]({slug}.md)")
+                lines.append(f"- {to_wikilink(slug, title)}")
             lines.append("")
         _atomic_write_bytes(target_dir / "_index.md",
                             "\n".join(lines).encode("utf-8"))
@@ -887,7 +986,7 @@ def _write_v2_indices(
             "",
         ]
         for slug, title in sorted(terminals[("_uncategorized",)]):
-            lines.append(f"- [{title}]({slug}.md)")
+            lines.append(f"- {to_wikilink(slug, title)}")
         lines.append("")
         _atomic_write_bytes(uc_dir / "_index.md",
                             "\n".join(lines).encode("utf-8"))

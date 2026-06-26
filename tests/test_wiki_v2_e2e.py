@@ -209,7 +209,7 @@ def test_root_index_lists_all_systems(tmp_path: Path) -> None:
     assert "Audio" in root_idx
     assert "Electrical" in root_idx
     # Links to child folders
-    assert "audio/_index.md" in root_idx or "(audio/" in root_idx
+    assert "audio/_index" in root_idx
 
 
 def test_root_index_reports_actual_provider(tmp_path: Path) -> None:

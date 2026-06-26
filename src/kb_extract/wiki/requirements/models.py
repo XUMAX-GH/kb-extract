@@ -7,6 +7,42 @@ import re
 from dataclasses import dataclass
 
 _FENCE_RE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
+_WS_RE = re.compile(r"\s+")
+
+
+def find_verbatim(quote: str, body: str) -> str | None:
+    """Return the original span of ``body`` matching ``quote`` ignoring only
+    whitespace differences, or ``None`` if there is no match.
+
+    Both strings are whitespace-normalized (runs of whitespace -> single
+    space, stripped) for comparison, but the returned value is the ORIGINAL
+    text from ``body`` (so rendering preserves the source exactly). This is the
+    zero-hallucination guard: an unverifiable quote yields ``None`` and is
+    dropped by the caller -- never approximated.
+    """
+    q = _WS_RE.sub(" ", quote).strip()
+    if not q:
+        return None
+    norm_chars: list[str] = []
+    orig_index: list[int] = []
+    prev_ws = False
+    for i, ch in enumerate(body):
+        if ch.isspace():
+            if not prev_ws and norm_chars:
+                norm_chars.append(" ")
+                orig_index.append(i)
+            prev_ws = True
+        else:
+            norm_chars.append(ch)
+            orig_index.append(i)
+            prev_ws = False
+    norm = "".join(norm_chars)
+    pos = norm.find(q)
+    if pos < 0:
+        return None
+    start = orig_index[pos]
+    end = orig_index[pos + len(q) - 1] + 1
+    return body[start:end]
 
 DEFAULT_HOW = "Not explicitly defined"
 DEFAULT_SAMPLE = "Not specified"
@@ -24,6 +60,7 @@ class TestItem:
     source_document: str
     source_section: str
     evidence_ref: str
+    evidence_quote: str = ""
 
     def to_dict(self) -> dict[str, str]:
         return {
@@ -35,6 +72,7 @@ class TestItem:
             "SourceDocument": self.source_document,
             "SourceSection": self.source_section,
             "EvidenceRef": self.evidence_ref,
+            "EvidenceQuote": self.evidence_quote,
         }
 
     def sort_key(self) -> tuple[str, str, str, str]:
@@ -62,7 +100,8 @@ def parse_items(raw: str) -> list[dict]:
 
 
 def coerce_item(
-    obj: dict, *, anchor: str, section_title: str, category: str | None = None
+    obj: dict, *, anchor: str, section_title: str, category: str | None = None,
+    section_body: str = ""
 ) -> TestItem:
     """Build a TestItem, forcing EvidenceRef/SourceSection from real context.
 
@@ -80,6 +119,9 @@ def coerce_item(
     else:
         cat = s("Category") or "Uncategorized"
 
+    raw_quote = s("EvidenceQuote")
+    verified = find_verbatim(raw_quote, section_body) if raw_quote else None
+
     return TestItem(
         category=cat,
         function=s("Function"),
@@ -89,4 +131,5 @@ def coerce_item(
         source_document=s("SourceDocument") or DEFAULT_DOC,
         source_section=section_title or s("SourceSection"),
         evidence_ref=anchor,  # ALWAYS the real anchor; never trust LLM
+        evidence_quote=verified or "",
     )

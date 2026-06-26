@@ -79,6 +79,7 @@ def extract_requirements(
                                 anchor=sec.anchor,
                                 section_title=sec.title,
                                 category=sec.category,
+                                section_body=chunk,
                             )
                         )
                     result.ok_sections += 1

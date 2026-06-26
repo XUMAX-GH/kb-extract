@@ -51,3 +51,29 @@ def test_written_files_are_lf_only(tmp_path):
     write_requirements(tmp_path / "d", "DOC1", [_item()])
     assert b"\r" not in (tmp_path / "d" / "requirements.json").read_bytes()
     assert b"\r" not in (tmp_path / "d" / "requirements.md").read_bytes()
+
+
+def test_markdown_renders_evidence_quote_blockquote():
+    md = render_markdown("DOC1", [_item(evidence_quote="hinge torque is 5 Nm")])
+    assert "  - Evidence: > hinge torque is 5 Nm" in md
+
+
+def test_markdown_folds_multiline_quote_to_single_line():
+    # A verbatim span may straddle line breaks in the source; folding internal
+    # whitespace keeps the requirements list structure intact (a blank line in
+    # the quote would otherwise terminate the list item).
+    md = render_markdown(
+        "DOC1", [_item(evidence_quote="shall maintain\n\n   a temperature")]
+    )
+    assert "  - Evidence: > shall maintain a temperature" in md
+    assert "\n\n   a temperature" not in md
+
+
+def test_markdown_omits_quote_line_when_empty():
+    md = render_markdown("DOC1", [_item(evidence_quote="")])
+    assert "Evidence:" not in md
+
+
+def test_json_includes_evidence_quote_key():
+    out = render_json([_item(evidence_quote="Q")])
+    assert '"EvidenceQuote": "Q"' in out

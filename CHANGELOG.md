@@ -1,5 +1,22 @@
 # 更新日志
 
+## [0.15.0] - 2026-06-26
+
+### Added
+
+- **Requirements 精确溯源**：每条抽取的需求附带一段经确定性校验的逐字源文
+  引用(EvidenceQuote)。引用必须逐字出现在源 main.md 中，校验不通过则丢弃，
+  绝不编造；requirements.md 以引用块形式展示来源句。
+- **Obsidian 兼容 wiki**：`kb wiki build` 生成的 wiki 现在带 YAML frontmatter
+  (title / domain / category_path / tags / evidence_sources)，页面导航改用
+  `[[wikilinks]]`，新增 `index.md`(按 domain 分组的内容目录) 与 `log.md`
+  (追加式构建日志，日期经 `--build-date` 注入以保证可复现)。
+- **跨 domain 聚合页**：被多个 domain 引用的源文档会在 `entities/` 下生成一页，
+  用 `## Appears in` 反链回所有引用它的 topic，便于在 graph view 中发现跨域关联。
+- `kb wiki verify` 增加 wikilink 死链校验：所有 `[[target]]` 必须指向存在的页面。
+- `kb wiki build` 增加 `--build-date YYYY-MM-DD` 选项（默认今天，仅在 CLI 层
+  读取时钟，库层始终接收注入值以保持 byte-reproducible）。
+
 ## [0.14.0] - 2026-06-26
 
 ### Changed

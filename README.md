@@ -504,6 +504,34 @@ kb wiki verify ./MyProject
 
 ---
 
+## Requirements 精确溯源
+
+每条抽取出的需求都附带一段经确定性校验的逐字源文引用(EvidenceQuote)。该引用
+必须逐字出现在源 main.md 中,校验不通过则自动丢弃,绝不编造。requirements.md 中
+以引用块形式展示,便于直接看到"这条需求来自哪句话"。
+
+## Obsidian 兼容 wiki
+
+`kb wiki build` 生成的 wiki 兼容 Obsidian:
+
+- 每页带 YAML frontmatter(title / domain / category_path / tags / evidence_sources),
+  可配合 Dataview 与 graph view 使用。
+- 页面间导航使用 `[[wikilinks]]`;证据回链仍指向确定性的 kb 锚点。
+- `index.md` 为内容目录(按 domain 分组),`log.md` 为追加式构建日志。
+- `entities/` 下为跨 domain 聚合页:同一份被多个 domain 引用的源文档会生成一页,
+  用 `## Appears in` 反链回所有引用它的 topic,在 graph view 中即可看到跨域关联。
+
+构建日志的日期可用 `--build-date YYYY-MM-DD` 注入(默认今天),以保证可复现:
+
+```bash
+kb wiki build ./MyProject --taxonomy ./MyProject/wiki/taxonomy.json \
+    --provider cached --responses-file responses.json --build-date 2026-06-25
+```
+
+`kb wiki verify` 额外校验所有 wikilink 均指向存在的页面,防止 Obsidian 死链。
+
+---
+
 ## 用户偏好与命令历史（v0.4+）
 
 `kb` 自带一个轻量本地记忆层（sqlite，WAL 模式，多进程并发安全）。

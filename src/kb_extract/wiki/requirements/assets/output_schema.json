@@ -3,7 +3,7 @@
   "title": "TestItem",
   "description": "A single extracted engineering requirement / test item.",
   "type": "object",
-  "required": ["Category", "Function", "What", "How", "Sample Size", "SourceDocument", "SourceSection", "EvidenceRef"],
+  "required": ["Category", "Function", "What", "How", "Sample Size", "SourceDocument", "SourceSection", "EvidenceRef", "EvidenceQuote"],
   "properties": {
     "Category": {
       "type": "string",
@@ -36,6 +36,10 @@
     "EvidenceRef": {
       "type": "string",
       "description": "Block ID(s) from the input JSON (e.g., 'p1_b25' or 'p1_b25, p2_b3')"
+    },
+    "EvidenceQuote": {
+      "type": "string",
+      "description": "A single sentence or table row copied VERBATIM (exactly, no paraphrase) from the provided section text that most directly supports this requirement. Must be a literal substring of the section content."
     }
   },
   "additionalProperties": false

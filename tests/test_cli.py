@@ -155,7 +155,7 @@ def test_kb_version_outputs_version():
     runner = CliRunner()
     result = runner.invoke(main, ["--version"])
     assert result.exit_code == 0
-    assert "0.14.0" in result.output
+    assert "0.15.0" in result.output
 
 
 def test_cli_source_smoke(tmp_path, monkeypatch):

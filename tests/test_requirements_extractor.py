@@ -72,3 +72,26 @@ def test_dry_run_skips_parse(tmp_path):
     res = extract_requirements(root, llm, dry_run=True)
     assert res.ok_sections == 1
     assert res.total_items == 0
+
+
+class _QuoteLlm:
+    name = "fake"
+
+    def chat(self, messages):
+        return (
+            '[{"Function":"Torque","What":"Hinge torque 5 Nm",'
+            '"EvidenceQuote":"hinge torque shall be 5 Nm"}]'
+        )
+
+
+def test_extractor_populates_verified_quote(tmp_path: Path):
+    kb = tmp_path / "kb" / "DOC1"
+    kb.mkdir(parents=True)
+    (kb / "main.md").write_text(
+        '<a id="sec-0001"></a>\n# Mechanical\n\n'
+        "The hinge torque shall be 5 Nm at room temperature.\n",
+        encoding="utf-8",
+    )
+    res = extract_requirements(tmp_path, _QuoteLlm())
+    items = res.items_by_doc["DOC1"]
+    assert items[0].evidence_quote == "hinge torque shall be 5 Nm"
