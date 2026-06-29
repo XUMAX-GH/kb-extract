@@ -812,8 +812,9 @@ def vault_build(path, output_dir, as_json):
 @click.option("-o", "--output-dir", type=click.Path(path_type=Path), default=None,
               help="从此目录读取 kb/，vault/Wiki/ 写回此目录。")
 @click.option("--dry-run", is_flag=True, help="只跑 prompt，不写盘。")
+@click.option("--skip-existing", is_flag=True, help="跳过已存在的实体页（断点续跑）。")
 @click.option("--json", "as_json", is_flag=True, help="以 JSON 打印摘要。")
-def vault_wiki(path, provider, responses_file, model, output_dir, dry_run, as_json):
+def vault_wiki(path, provider, responses_file, model, output_dir, dry_run, skip_existing, as_json):
     """生成 Wiki 叙述页：概览 + 实体页 + 多文档对比。"""
     if provider == "mock":
         from .wiki.providers.mock import MockLlmClient
@@ -834,7 +835,8 @@ def vault_wiki(path, provider, responses_file, model, output_dir, dry_run, as_js
             raise click.ClickException(str(e)) from e
     from .vault.generator import generate_wiki
 
-    r = generate_wiki(path, llm, output_dir=output_dir, dry_run=dry_run)
+    r = generate_wiki(path, llm, output_dir=output_dir, dry_run=dry_run,
+                      skip_existing=skip_existing)
     summary = {"pages": r.pages, "ok": r.ok, "failed": r.failed, "entities": len(r.entities)}
     if as_json:
         click.echo(json.dumps(summary, ensure_ascii=False))
