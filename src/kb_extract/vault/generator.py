@@ -55,7 +55,7 @@ def _evidence_lines(atoms: list[Atom]) -> list[str]:
         unit = f" {a.unit}" if a.unit else ""
         lines.append(
             f"- [[{a.parameter}]]: {val}{unit} "
-            f"([{a.source_doc}#{a.section}](../../RawMD/{a.source_doc}.md#{a.section}))"
+            f"([{a.source_doc}#{a.section}](../../RawMD/{a.source_doc}.md#^{a.section}))"
         )
     lines.append("")
     return lines

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from functools import cache
 from pathlib import Path
@@ -38,6 +39,19 @@ def render_index(docs: list[str]) -> str:
     return serialize_markdown("\n".join(lines))
 
 
+_ANCHOR_HEADING = re.compile(r'<a id="(sec-\d+)"></a>\n(#{1,6} .*)')
+
+
+def _inject_block_refs(text: str) -> str:
+    """Add Obsidian block ids so #^sec-NNNN jumps to the exact section.
+
+    Turns ``<a id="sec-0001"></a>\\n# Title`` into ``# Title\\n^sec-0001`` so
+    evidence links resolve to the precise paragraph in Obsidian. The HTML
+    anchor is also kept for non-Obsidian renderers.
+    """
+    return _ANCHOR_HEADING.sub(r'<a id="\1"></a>\n\2\n^\1', text)
+
+
 def build_vault(project_root: Path, *, output_dir: Path | None = None) -> VaultResult:
     kb_root = _kb_dir(project_root, output_dir)
     result = VaultResult()
@@ -54,7 +68,8 @@ def build_vault(project_root: Path, *, output_dir: Path | None = None) -> VaultR
         if not main.is_file():
             continue
         result.docs.append(doc_id)
-        (vault / "RawMD" / f"{doc_id}.md").write_bytes(main.read_bytes())
+        raw = serialize_markdown(_inject_block_refs(main.read_text(encoding="utf-8")))
+        (vault / "RawMD" / f"{doc_id}.md").write_bytes(raw.encode("utf-8"))
         gsrc = doc_dir / "graph"
         if gsrc.is_dir():
             gdst = vault / "Graph" / doc_id
@@ -67,7 +82,7 @@ def build_vault(project_root: Path, *, output_dir: Path | None = None) -> VaultR
                         depth = len(rel.parts) + 1
                         up = "../" * depth
                         text = f.read_text(encoding="utf-8").replace(
-                            "main.md#", f"{up}RawMD/{doc_id}.md#"
+                            "main.md#", f"{up}RawMD/{doc_id}.md#^"
                         )
                         (gdst / rel).write_bytes(text.encode("utf-8"))
                     else:
