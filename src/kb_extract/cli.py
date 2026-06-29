@@ -804,25 +804,40 @@ def vault_build(path, output_dir, as_json):
 
 @vault_group.command(name="wiki")
 @click.argument("path", type=click.Path(exists=True, file_okay=False, path_type=Path))
-@click.option("--provider", type=click.Choice(["mock", "cached", "github-models"]),
-              default="mock", show_default=True, help="LLM provider.")
+@click.option("--provider", type=click.Choice(["agent", "custom", "mock", "cached", "github-models"]),
+              default="agent", show_default=True, help="LLM provider.")
 @click.option("--responses-file", type=click.Path(path_type=Path), default=None,
-              help="cached provider 的响应 JSON。")
-@click.option("--model", default=None, help="github-models 模型名。")
+              help="cached/agent provider 的响应 JSON。")
+@click.option("--model", default=None, help="模型名(custom 默认 gpt-5)。")
+@click.option("--base-url", default=None, help="custom provider 的 OpenAI 兼容 endpoint。")
+@click.option("--api-key", default=None, help="custom provider 的 API key(否则读 KB_LLM_API_KEY)。")
 @click.option("-o", "--output-dir", type=click.Path(path_type=Path), default=None,
               help="从此目录读取 kb/，vault/Wiki/ 写回此目录。")
 @click.option("--dry-run", is_flag=True, help="只跑 prompt，不写盘。")
+@click.option("--skip-existing", is_flag=True, help="跳过已存在的实体页（断点续跑）。")
 @click.option("--json", "as_json", is_flag=True, help="以 JSON 打印摘要。")
-def vault_wiki(path, provider, responses_file, model, output_dir, dry_run, as_json):
+def vault_wiki(path, provider, responses_file, model, base_url, api_key,
+               output_dir, dry_run, skip_existing, as_json):
     """生成 Wiki 叙述页：概览 + 实体页 + 多文档对比。"""
+    record_path = None
     if provider == "mock":
         from .wiki.providers.mock import MockLlmClient
         llm = MockLlmClient()
-    elif provider == "cached":
+    elif provider in ("cached", "agent"):
         if responses_file is None:
-            raise click.UsageError("--provider cached 需要 --responses-file")
+            raise click.UsageError(f"--provider {provider} 需要 --responses-file")
         from .wiki.providers.cached import CachedLlmClient
-        llm = CachedLlmClient(responses_path=responses_file)
+        # agent mode: missing prompts recorded to .missing.json for agent to answer
+        record_path = responses_file.with_suffix(".missing.json") if provider == "agent" else None
+        llm = CachedLlmClient(
+            responses_path=responses_file, record_missing_path=record_path)
+    elif provider == "custom":
+        from .wiki.providers.github_models import GitHubModelsAuthError
+        from .wiki.providers.openai_compat import OpenAICompatLlmClient
+        try:
+            llm = OpenAICompatLlmClient(base_url=base_url, model=model, api_key=api_key)
+        except GitHubModelsAuthError as e:
+            raise click.ClickException(str(e)) from e
     else:
         from .wiki.providers.github_models import (
             GitHubModelsAuthError,
@@ -834,8 +849,11 @@ def vault_wiki(path, provider, responses_file, model, output_dir, dry_run, as_js
             raise click.ClickException(str(e)) from e
     from .vault.generator import generate_wiki
 
-    r = generate_wiki(path, llm, output_dir=output_dir, dry_run=dry_run)
+    r = generate_wiki(path, llm, output_dir=output_dir, dry_run=dry_run,
+                      skip_existing=skip_existing)
     summary = {"pages": r.pages, "ok": r.ok, "failed": r.failed, "entities": len(r.entities)}
+    if record_path is not None and record_path.exists():
+        summary["missing"] = str(record_path)
     if as_json:
         click.echo(json.dumps(summary, ensure_ascii=False))
     else:

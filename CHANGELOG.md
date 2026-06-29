@@ -1,5 +1,16 @@
 # 更新日志
 
+## [0.20.0] - 2026-06-29
+
+### Added
+
+- `kb vault wiki` 新增两种 provider：默认 `agent`（Copilot CLI 代答，免 key/endpoint，
+  缺失 prompt 记录到 `.missing.json` 供回填）与 `custom`（任意 OpenAI 兼容服务，
+  `--base-url/--model/--api-key`，缺省回退 `KB_LLM_*` 环境变量，默认 model gpt-5）。
+- `--skip-existing`：跳过已存在的实体页，支持断点续跑、避免重复消耗配额。
+- vault 的 RawMD 注入 Obsidian 块引用 `^sec-NNNN`，Graph/Wiki 证据链接改为 `#^sec-NNNN`，
+  点击后可精准跳转到原文具体段落（此前仅跳到文档顶部）。
+
 ## [0.19.0] - 2026-06-29
 
 ### Changed

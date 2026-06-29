@@ -55,7 +55,7 @@ def _evidence_lines(atoms: list[Atom]) -> list[str]:
         unit = f" {a.unit}" if a.unit else ""
         lines.append(
             f"- [[{a.parameter}]]: {val}{unit} "
-            f"([{a.source_doc}#{a.section}](../../RawMD/{a.source_doc}.md#{a.section}))"
+            f"([{a.source_doc}#{a.section}](../../RawMD/{a.source_doc}.md#^{a.section}))"
         )
     lines.append("")
     return lines
@@ -83,7 +83,8 @@ def _compare_page(entity: str, per_doc: dict[str, list[Atom]]) -> str:
 
 
 def generate_wiki(project_root: Path, llm: LlmClient, *,
-                  output_dir: Path | None = None, dry_run: bool = False) -> WikiResult:
+                  output_dir: Path | None = None, dry_run: bool = False,
+                  skip_existing: bool = False) -> WikiResult:
     kb_root = _kb_dir(project_root, output_dir)
     result = WikiResult()
     if not kb_root.is_dir():
@@ -99,6 +100,9 @@ def generate_wiki(project_root: Path, llm: LlmClient, *,
     for entity in sorted(by_entity_doc):
         per_doc = by_entity_doc[entity]
         flat = [a for v in per_doc.values() for a in v]
+        fname = entity.replace("/", "-").replace(" ", "_")
+        if skip_existing and (wiki / "entities" / f"{fname}.md").exists():
+            continue
         body = _fallback_body(entity)
         try:
             raw = llm.chat(compose_whatwhyhow(
@@ -110,7 +114,6 @@ def generate_wiki(project_root: Path, llm: LlmClient, *,
             result.failed += 1
         if dry_run:
             continue
-        fname = entity.replace("/", "-").replace(" ", "_")
         (wiki / "entities" / f"{fname}.md").write_bytes(
             _entity_page(entity, flat, body).encode("utf-8"))
         result.entities.append(entity)
