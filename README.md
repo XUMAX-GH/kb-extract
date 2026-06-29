@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml/badge.svg)](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.19.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.20.0-blue.svg)](CHANGELOG.md)
 
 ---
 
@@ -33,6 +33,24 @@
 未来在它之上做 LLM 整理（PageIndex 重排、Karpathy LLM-Wiki、Obsidian Wiki……）
 时，所有上层产物都能精确引用到 *这一段* 出自 *这一篇文档* 的 *这一页* —— 这就是
 "hardness engineering"（硬度工程）的意义。
+
+---
+
+## 功能总览
+
+kb-extract 把一份原始工程文档变成一座可推理、可溯源的 Obsidian 知识库，
+数据流为：**Raw -> RawMD -> Atomic -> Module -> Graph -> Wiki**。
+
+- **抽取（确定性）**：PDF / DOCX / XLSX / PPTX / 图片 / ZIP 转成段落级锚点的
+  Markdown 源文件；逐 byte 可复现，全程零 LLM、零网络。
+- **脱敏**：内置策略去除公司 logo 与料号（`[MH]\d{6,8}` 等），机密文档可安全外发。
+- **知识图谱**：拆成原子知识（entity/parameter/value/unit/type/condition），归入
+  8 大模块，建立 depends_on / affects / constrained_by / validated_by / implemented_by 关系。
+- **LLM Wiki（双语）**：每个实体一页中英 What/Why/How，证据用块引用直链到原文段落，
+  新增标 `[新增]/[来源]/[置信度]`，存疑标 `[待验证]`，冲突建 `[冲突]` 对比页。
+- **两种 LLM 路径**：默认 `agent`（Copilot CLI 代答，免 key）；或 `custom` 自定义
+  OpenAI 兼容 endpoint（`--base-url/--model/--api-key`，默认 gpt-5），断点续跑。
+- **维护**：vault 内置 `AGENTS.md` schema，指导 Copilot 只增不删地维护全库。
 
 ---
 
@@ -487,10 +505,12 @@ kb/<doc>/graph/
 ### Vault 层（v0.18.0，`kb vault`）
 
 `kb vault build PATH` 装配 Obsidian vault（零 LLM）：`RawMD/` + `Graph/` +
-`AGENTS.md` schema + `index.md`。`kb vault wiki PATH --provider ...` 让 LLM 写
-叙述层（每文档概览 / 每实体页 / 多文档 `[冲突]` 对比页），新增标 `[新增]/[来源]/
-[置信度]`，缺失标 `[待验证]`，不覆盖已有知识。`AGENTS.md` 指导 Copilot 维护四层
-知识库。
+`AGENTS.md` schema + `index.md`，并为每段注入块引用 `^sec-NNNN`，让证据链接精准
+跳转到原文段落。`kb vault wiki PATH --provider ...` 让 LLM 写叙述层（每文档概览 /
+每实体中英 What/Why/How / 多文档 `[冲突]` 对比页），新增标 `[新增]/[来源]/[置信度]`，
+缺失标 `[待验证]`，不覆盖已有知识。Provider 默认 `agent`（Copilot 代答免 key）或
+`custom`（OpenAI 兼容 endpoint），`--skip-existing` 支持断点续跑。`AGENTS.md` 指导
+Copilot 维护四层知识库。
 
 ---
 
