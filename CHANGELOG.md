@@ -1,5 +1,15 @@
 # 更新日志
 
+## [0.19.0] - 2026-06-29
+
+### Changed
+
+- `kb vault wiki` 实体页改为**中英双语 What/Why/How** 结构：每实体一次 LLM 调用
+  （含 What 详述/Why 目的/How 实现），不再单次塞全部原子（修复大文档 overflow），
+  失败回退确定性骨架。页末附 Evidence 反链 `RawMD/<doc>.md#<section>`。
+- vault build 复制 Graph 页时把 `main.md#` 链接重写为 `../../RawMD/<doc>.md#`，
+  修复 Obsidian 中点击章节锚点失效的问题。
+
 ## [0.18.0] - 2026-06-29
 
 ### Added

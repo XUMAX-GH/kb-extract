@@ -47,5 +47,16 @@ def test_wiki_entity_and_compare(tmp_path):
     assert r.exit_code == 0, r.output
     ent = tmp_path / "vault" / "Wiki" / "entities" / "hinge.md"
     cmp = tmp_path / "vault" / "Wiki" / "compare" / "hinge.md"
-    assert ent.exists() and "[[force]]" in ent.read_text(encoding="utf-8")
+    assert ent.exists()
+    txt = ent.read_text(encoding="utf-8")
+    assert "[[force]]" in txt and "../../RawMD/DOC1.md#" in txt
     assert cmp.exists() and "[冲突]" in cmp.read_text(encoding="utf-8")
+
+
+def test_build_rewrites_graph_links(tmp_path):
+    g = _seed(tmp_path, "DOC1", [_atom()])
+    g.joinpath("graph.md").write_text("- x (main.md#sec-0001)\n", encoding="utf-8")
+    r = CliRunner().invoke(main, ["vault", "build", str(tmp_path), "--json"])
+    assert r.exit_code == 0, r.output
+    gm = (tmp_path / "vault" / "Graph" / "DOC1" / "graph.md").read_text(encoding="utf-8")
+    assert "../../RawMD/DOC1.md#sec-0001" in gm

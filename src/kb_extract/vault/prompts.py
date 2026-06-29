@@ -26,9 +26,10 @@ def build_system_prompt() -> str:
     return _base("base_system_rules.md").rstrip()
 
 
-def compose_overview(*, atoms: list[dict]) -> list[Message]:
+def compose_whatwhyhow(*, entity: str, atoms: list[dict]) -> list[Message]:
     body = json.dumps(atoms, ensure_ascii=False, indent=2)
+    user = _read("wiki_user.md").replace("{entity}", entity).replace("{atoms_content}", body)
     return [
         {"role": "system", "content": build_system_prompt()},
-        {"role": "user", "content": _read("wiki_user.md").replace("{atoms_content}", body)},
+        {"role": "user", "content": user},
     ]
