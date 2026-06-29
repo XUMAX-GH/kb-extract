@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml/badge.svg)](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.14.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.15.0-blue.svg)](CHANGELOG.md)
 
 ---
 
@@ -69,7 +69,7 @@ cd kb-extract
 完成后运行：
 
 ```bash
-kb --version          # 0.14.0
+kb --version          # 0.15.0
 kb adapters           # 列出 5 个内置适配器（4 个 v2 + 1 个 image）
 ```
 
@@ -441,6 +441,22 @@ kb/
 章节的 Category 直接取自**文档自身的顶层章节标题**（如 Mechanical & Industrial
 Design / Electrical / Software / Touchpad 等），由代码确定性地从 `main.md` 的标题
 层级推导，而非 LLM 自由生成或关键词启发式。这保证同一文档的分类稳定可复现。
+
+### 原子知识层（v0.15.0，`kb wiki atoms`）
+
+`kb wiki atoms PATH` 把每份文档拆解为**最小可复用知识单元（atom）**：每个原子
+描述"一个 entity 的一个 parameter 在一个 condition 下的一个 value"，含
+entity / parameter / value / unit / type / condition 字段。产物写入：
+
+```
+kb/<doc>/graph/
+  atoms.json   <- 权威源：按 section 排序的原子数组，id/source/anchor/evidence 强制
+  atoms.md     <- 派生视图：Obsidian 双链 [[entity]] / [[parameter]]，byte-reproducible
+```
+
+`id`(entity+parameter+condition+source 的 sha256) 与 `evidence_ref` 由代码写入；
+缺失数值或非法 type 标记 `待验证`，绝不臆造尺寸/力/功耗等关键参数。provider /
+分块 / 可复现机制与 `wiki requirements` 一致。
 
 ---
 

@@ -1,5 +1,17 @@
 # 更新日志
 
+## [0.15.0] - 2026-06-29
+
+### Added
+
+- 新增**原子知识层** `kb wiki atoms PATH`（可推理工程知识系统四部曲之第一步）：
+  把每份文档拆解为最小可复用知识单元（entity / parameter / value / unit / type /
+  condition），写出 `kb/<doc>/graph/atoms.json`（按 section 排序，权威源）与派生的
+  `atoms.md`（Obsidian 双链 `[[entity]]` 视图，byte-reproducible）。
+  - `id` / `source_doc` / `section` / `evidence_ref` 由代码强制写入，可溯源；
+  - 缺失数值或非法 type 标记 `待验证`，**不臆造**尺寸/力/功耗等关键参数；
+  - 复用 SP-3 的章节遍历/分块、provider 重试退避与 cached 可复现机制。
+
 ## [0.15.0] - 2026-06-26
 
 ### Added
