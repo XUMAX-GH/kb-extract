@@ -1,5 +1,17 @@
 # 更新日志
 
+## [0.17.0] - 2026-06-29
+
+### Added
+
+- 新增**图谱层** `kb wiki graph PATH`（四部曲第三步，LLM 生成、可复现）：
+  把 `graph/atoms.json` 原子两两连接成带证据的边，关系限定 5 类
+  （depends_on / affects / constrained_by / validated_by / implemented_by）。
+  按模块分批喂给 LLM；代码强制 source/target 必须是真实原子 id，幻觉 id、
+  自环、未知关系一律丢弃；缺证据标 待验证 并把置信度压到 <=0.3。产出
+  `graph/edges.json`（按 source/relation/target 排序去重）+ `graph/graph.md`
+  （按关系分组、Obsidian 双链）。provider/cache 机制同 `wiki atoms`。
+
 ## [0.16.0] - 2026-06-29
 
 ### Added

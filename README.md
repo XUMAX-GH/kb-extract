@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml/badge.svg)](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.16.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.17.0-blue.svg)](CHANGELOG.md)
 
 ---
 
@@ -69,7 +69,7 @@ cd kb-extract
 完成后运行：
 
 ```bash
-kb --version          # 0.16.0
+kb --version          # 0.17.0
 kb adapters           # 列出 5 个内置适配器（4 个 v2 + 1 个 image）
 ```
 
@@ -469,6 +469,19 @@ entity/parameter 关键词 -> 兜底 Subsystems 并标 `待验证`。产物：
 kb/<doc>/graph/
   modules.json          <- {module: [atom_id]}，含 _pending，byte-reproducible
   modules/<module>.md   <- 8 页，[[entity]]/[[parameter]] 双链 + 锚点 + See also
+```
+
+### 图谱层（v0.17.0，`kb wiki graph`）
+
+`kb wiki graph PATH --provider {mock,cached,github-models}` 把原子连成带证据的
+有向边（LLM 生成，代码守门）。关系限定 5 类：depends_on / affects /
+constrained_by / validated_by / implemented_by。source/target 必须是真实原子
+id，幻觉 id、自环、未知关系丢弃；缺证据标 `待验证` 且置信度压到 <=0.3。产物：
+
+```
+kb/<doc>/graph/
+  edges.json            <- 按 (source,relation,target) 排序去重，byte-reproducible
+  graph.md              <- 按关系分组，[[parameter]] 双链
 ```
 
 ---

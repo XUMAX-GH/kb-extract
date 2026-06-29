@@ -723,6 +723,62 @@ def wiki_modules(path, output_dir, as_json):
     _record_history(path, "wiki modules", summary, 0, f"assigned={summary['assigned']}")
 
 
+@wiki_group.command(name="graph")
+@click.argument("path", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option("--provider", type=click.Choice(["mock", "cached", "github-models"]),
+              default="mock", show_default=True,
+              help="LLM provider. mock=offline smoke, cached=reproducible, github-models=real.")
+@click.option("--responses-file", type=click.Path(path_type=Path), default=None,
+              help="cached provider 的响应 JSON。")
+@click.option("--model", default=None, help="github-models 模型名（如 openai/gpt-4o-mini）。")
+@click.option("-o", "--output-dir", type=click.Path(path_type=Path), default=None,
+              help="从此目录读取 kb/，产物写回此目录的 kb/<doc>/graph/。")
+@click.option("--dry-run", is_flag=True, help="只跑 prompt，不写盘。")
+@click.option("--json", "as_json", is_flag=True, help="以 JSON 打印摘要。")
+def wiki_graph(path, provider, responses_file, model, output_dir, dry_run, as_json):
+    """连接 graph/atoms.json 原子为带证据的边，写出 graph/edges.json + graph.md。"""
+    from .layout import kb_dir as _kb_dir
+    from .wiki.graph.extractor import _load_atoms, extract_graph
+    from .wiki.graph.render import write_graph
+
+    if provider == "mock":
+        from .wiki.providers.mock import MockLlmClient
+        llm = MockLlmClient()
+    elif provider == "cached":
+        if responses_file is None:
+            raise click.UsageError("--provider cached 需要 --responses-file")
+        from .wiki.providers.cached import CachedLlmClient
+        llm = CachedLlmClient(responses_path=responses_file)
+    else:  # github-models
+        from .wiki.providers.github_models import (
+            GitHubModelsAuthError,
+            GitHubModelsLlmClient,
+        )
+        try:
+            llm = GitHubModelsLlmClient(model=model)
+        except GitHubModelsAuthError as e:
+            raise click.ClickException(str(e)) from e
+
+    result = extract_graph(path, llm, output_dir=output_dir, dry_run=dry_run)
+    if not dry_run:
+        kb_root = _kb_dir(path, output_dir)
+        for doc_id, edges in result.edges_by_doc.items():
+            write_graph(kb_root / doc_id, doc_id, edges, _load_atoms(kb_root / doc_id / "graph"))
+
+    summary = {"docs": result.docs, "edges": result.total_edges,
+               "pending": result.total_pending}
+    if as_json:
+        click.echo(json.dumps(summary, ensure_ascii=False))
+    else:
+        click.echo(
+            f"wiki graph: docs={summary['docs']} edges={summary['edges']} "
+            f"pending={summary['pending']}"
+        )
+    _record_history(path, "wiki graph", {
+        "provider": provider, "dry_run": dry_run, **summary,
+    }, 0, f"edges={summary['edges']}")
+
+
 @wiki_group.group(name="taxonomy")
 def wiki_taxonomy_group() -> None:
     """Taxonomy 配置管理子命令（v0.7.0）。"""
