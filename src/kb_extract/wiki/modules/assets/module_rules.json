@@ -1,0 +1,40 @@
+{
+  "modules": [
+    "Product Definition",
+    "Mechanical",
+    "Electrical",
+    "Subsystems",
+    "State Machine",
+    "Validation",
+    "Manufacturing-DFX",
+    "Compliance"
+  ],
+  "category_to_module": {
+    "product requirements summary": "Product Definition",
+    "product overview": "Product Definition",
+    "interface with the host": "Electrical",
+    "mechanical": "Mechanical",
+    "industrial design": "Mechanical",
+    "electrical": "Electrical",
+    "touchpad": "Subsystems",
+    "keyset": "Subsystems",
+    "keyboard system operation": "Subsystems",
+    "backlight": "Subsystems",
+    "pen": "Subsystems",
+    "repairs": "Manufacturing-DFX",
+    "packaging": "Manufacturing-DFX",
+    "safety": "Compliance",
+    "certifications": "Compliance",
+    "reliability": "Validation"
+  },
+  "keyword_to_module": {
+    "Product Definition": ["overview", "definition", "summary", "scope"],
+    "Mechanical": ["thickness", "dimension", "force", "hinge", "cover", "weight", "torque", "drop"],
+    "Electrical": ["power", "voltage", "current", "battery", "efficiency", "interface", "host", "connector"],
+    "State Machine": ["state", "mode", "transition", "wake", "sleep", "idle"],
+    "Validation": ["test", "verify", "validation", "sample size", "reliability"],
+    "Manufacturing-DFX": ["assembly", "bom", "yield", "repair", "packaging", "logistics", "manufactur"],
+    "Compliance": ["compliance", "safety", "regulation", "certification", "rohs", "fcc", "environmental"]
+  },
+  "fallback": "Subsystems"
+}

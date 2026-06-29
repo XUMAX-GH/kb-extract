@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml/badge.svg)](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.15.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.16.0-blue.svg)](CHANGELOG.md)
 
 ---
 
@@ -69,7 +69,7 @@ cd kb-extract
 完成后运行：
 
 ```bash
-kb --version          # 0.15.0
+kb --version          # 0.16.0
 kb adapters           # 列出 5 个内置适配器（4 个 v2 + 1 个 image）
 ```
 
@@ -457,6 +457,19 @@ kb/<doc>/graph/
 `id`(entity+parameter+condition+source 的 sha256) 与 `evidence_ref` 由代码写入；
 缺失数值或非法 type 标记 `待验证`，绝不臆造尺寸/力/功耗等关键参数。provider /
 分块 / 可复现机制与 `wiki requirements` 一致。
+
+### 模块层（v0.16.0，`kb wiki modules`）
+
+`kb wiki modules PATH` 把原子**确定性**归入 8 个固定工程模块（零 LLM）：
+Product Definition / Mechanical / Electrical / Subsystems / State Machine /
+Validation / Manufacturing-DFX / Compliance。归类顺序：章节标题映射 ->
+entity/parameter 关键词 -> 兜底 Subsystems 并标 `待验证`。产物：
+
+```
+kb/<doc>/graph/
+  modules.json          <- {module: [atom_id]}，含 _pending，byte-reproducible
+  modules/<module>.md   <- 8 页，[[entity]]/[[parameter]] 双链 + 锚点 + See also
+```
 
 ---
 
