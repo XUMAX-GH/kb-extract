@@ -63,7 +63,15 @@ def build_vault(project_root: Path, *, output_dir: Path | None = None) -> VaultR
                 if f.is_file():
                     rel = f.relative_to(gsrc)
                     (gdst / rel).parent.mkdir(parents=True, exist_ok=True)
-                    (gdst / rel).write_bytes(f.read_bytes())
+                    if f.suffix == ".md":
+                        depth = len(rel.parts) + 1
+                        up = "../" * depth
+                        text = f.read_text(encoding="utf-8").replace(
+                            "main.md#", f"{up}RawMD/{doc_id}.md#"
+                        )
+                        (gdst / rel).write_bytes(text.encode("utf-8"))
+                    else:
+                        (gdst / rel).write_bytes(f.read_bytes())
     (vault / "AGENTS.md").write_bytes(agents_md().encode("utf-8"))
     (vault / "index.md").write_bytes(render_index(result.docs).encode("utf-8"))
     return result
