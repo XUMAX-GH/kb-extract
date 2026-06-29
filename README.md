@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml/badge.svg)](https://github.com/XUMAX-GH/kb-extract/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.17.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.18.0-blue.svg)](CHANGELOG.md)
 
 ---
 
@@ -69,7 +69,7 @@ cd kb-extract
 完成后运行：
 
 ```bash
-kb --version          # 0.17.0
+kb --version          # 0.18.0
 kb adapters           # 列出 5 个内置适配器（4 个 v2 + 1 个 image）
 ```
 
@@ -483,6 +483,14 @@ kb/<doc>/graph/
   edges.json            <- 按 (source,relation,target) 排序去重，byte-reproducible
   graph.md              <- 按关系分组，[[parameter]] 双链
 ```
+
+### Vault 层（v0.18.0，`kb vault`）
+
+`kb vault build PATH` 装配 Obsidian vault（零 LLM）：`RawMD/` + `Graph/` +
+`AGENTS.md` schema + `index.md`。`kb vault wiki PATH --provider ...` 让 LLM 写
+叙述层（每文档概览 / 每实体页 / 多文档 `[冲突]` 对比页），新增标 `[新增]/[来源]/
+[置信度]`，缺失标 `[待验证]`，不覆盖已有知识。`AGENTS.md` 指导 Copilot 维护四层
+知识库。
 
 ---
 

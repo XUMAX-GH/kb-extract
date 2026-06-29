@@ -1,5 +1,19 @@
 # 更新日志
 
+## [0.18.0] - 2026-06-29
+
+### Added
+
+- 新增**Obsidian vault 层**（四部曲第四步，完结）：
+  - `kb vault build PATH`（零 LLM、可复现）把 `kb/` 装配成 Obsidian vault：
+    `RawMD/<doc>.md` + `Graph/<doc>/`（atoms/modules/edges + 页面）+ `AGENTS.md`
+    schema + `index.md`，全部 byte-identical 复制。
+  - `kb vault wiki PATH --provider ...`（LLM）生成叙述层：每文档概览、每实体页
+    （跨模块聚合原子 + 双链 + 证据）、多文档实体自动建 `[冲突]` 对比页。新增标
+    `[新增]/[来源]/[置信度]`，缺失标 `[待验证]`，不覆盖已有知识。
+  - `AGENTS.md` 向 Copilot 说明四层 schema、Raw->RawMD->Atomic->Module->Graph->Wiki
+    流程、双链与冲突约束。
+
 ## [0.17.0] - 2026-06-29
 
 ### Added

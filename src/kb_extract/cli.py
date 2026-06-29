@@ -779,6 +779,70 @@ def wiki_graph(path, provider, responses_file, model, output_dir, dry_run, as_js
     }, 0, f"edges={summary['edges']}")
 
 
+@main.group(name="vault")
+def vault_group() -> None:
+    """Obsidian vault 装配 + Wiki 叙述层（四部曲第四步）。"""
+
+
+@vault_group.command(name="build")
+@click.argument("path", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option("-o", "--output-dir", type=click.Path(path_type=Path), default=None,
+              help="从此目录读取 kb/，vault/ 写回此目录。")
+@click.option("--json", "as_json", is_flag=True, help="以 JSON 打印摘要。")
+def vault_build(path, output_dir, as_json):
+    """把 kb/ 装配成 Obsidian vault（RawMD/Graph/Wiki + AGENTS.md + index）。"""
+    from .vault.builder import build_vault
+
+    r = build_vault(path, output_dir=output_dir)
+    summary = {"docs": r.doc_count}
+    if as_json:
+        click.echo(json.dumps(summary, ensure_ascii=False))
+    else:
+        click.echo(f"vault build: docs={summary['docs']}")
+    _record_history(path, "vault build", summary, 0, f"docs={summary['docs']}")
+
+
+@vault_group.command(name="wiki")
+@click.argument("path", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option("--provider", type=click.Choice(["mock", "cached", "github-models"]),
+              default="mock", show_default=True, help="LLM provider.")
+@click.option("--responses-file", type=click.Path(path_type=Path), default=None,
+              help="cached provider 的响应 JSON。")
+@click.option("--model", default=None, help="github-models 模型名。")
+@click.option("-o", "--output-dir", type=click.Path(path_type=Path), default=None,
+              help="从此目录读取 kb/，vault/Wiki/ 写回此目录。")
+@click.option("--dry-run", is_flag=True, help="只跑 prompt，不写盘。")
+@click.option("--json", "as_json", is_flag=True, help="以 JSON 打印摘要。")
+def vault_wiki(path, provider, responses_file, model, output_dir, dry_run, as_json):
+    """生成 Wiki 叙述页：概览 + 实体页 + 多文档对比。"""
+    if provider == "mock":
+        from .wiki.providers.mock import MockLlmClient
+        llm = MockLlmClient()
+    elif provider == "cached":
+        if responses_file is None:
+            raise click.UsageError("--provider cached 需要 --responses-file")
+        from .wiki.providers.cached import CachedLlmClient
+        llm = CachedLlmClient(responses_path=responses_file)
+    else:
+        from .wiki.providers.github_models import (
+            GitHubModelsAuthError,
+            GitHubModelsLlmClient,
+        )
+        try:
+            llm = GitHubModelsLlmClient(model=model)
+        except GitHubModelsAuthError as e:
+            raise click.ClickException(str(e)) from e
+    from .vault.generator import generate_wiki
+
+    r = generate_wiki(path, llm, output_dir=output_dir, dry_run=dry_run)
+    summary = {"pages": r.pages, "ok": r.ok, "failed": r.failed, "entities": len(r.entities)}
+    if as_json:
+        click.echo(json.dumps(summary, ensure_ascii=False))
+    else:
+        click.echo(f"vault wiki: pages={r.pages} ok={r.ok} failed={r.failed}")
+    _record_history(path, "vault wiki", {"provider": provider, **summary}, 0, f"pages={r.pages}")
+
+
 @wiki_group.group(name="taxonomy")
 def wiki_taxonomy_group() -> None:
     """Taxonomy 配置管理子命令（v0.7.0）。"""
