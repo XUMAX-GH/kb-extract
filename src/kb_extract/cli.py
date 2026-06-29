@@ -698,6 +698,31 @@ def wiki_atoms(path, provider, responses_file, model, output_dir,
     }, 0, f"atoms={summary['atoms']}")
 
 
+@wiki_group.command(name="modules")
+@click.argument("path", type=click.Path(exists=True, file_okay=False, path_type=Path))
+@click.option("-o", "--output-dir", type=click.Path(path_type=Path), default=None,
+              help="从此目录读取 kb/，产物写回此目录的 kb/<doc>/graph/。")
+@click.option("--json", "as_json", is_flag=True, help="以 JSON 打印摘要。")
+def wiki_modules(path, output_dir, as_json):
+    """把 graph/atoms.json 归入 8 大模块，写出 modules.json + modules/<m>.md。"""
+    from .wiki.modules.extractor import build_modules
+
+    result = build_modules(path, output_dir=output_dir, write=True)
+    summary = {
+        "docs": result.docs,
+        "assigned": result.total_assigned,
+        "pending": sum(len(v) for v in result.pending_by_doc.values()),
+    }
+    if as_json:
+        click.echo(json.dumps(summary, ensure_ascii=False))
+    else:
+        click.echo(
+            f"wiki modules: docs={summary['docs']} assigned={summary['assigned']} "
+            f"pending={summary['pending']}"
+        )
+    _record_history(path, "wiki modules", summary, 0, f"assigned={summary['assigned']}")
+
+
 @wiki_group.group(name="taxonomy")
 def wiki_taxonomy_group() -> None:
     """Taxonomy 配置管理子命令（v0.7.0）。"""

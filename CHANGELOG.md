@@ -1,5 +1,16 @@
 # 更新日志
 
+## [0.16.0] - 2026-06-29
+
+### Added
+
+- 新增**模块层** `kb wiki modules PATH`（四部曲第二步，零 LLM、可复现）：
+  把 `graph/atoms.json` 的原子确定性归入 8 个固定工程模块（Product Definition /
+  Mechanical / Electrical / Subsystems / State Machine / Validation /
+  Manufacturing-DFX / Compliance），产出 `graph/modules.json` 与 8 个
+  `graph/modules/<module>.md` 页面（Obsidian 双链 + 锚点 + See also）。
+  归类顺序：章节标题映射 -> entity/parameter 关键词 -> 兜底 Subsystems 并标 待验证。
+
 ## [0.15.0] - 2026-06-29
 
 ### Added
